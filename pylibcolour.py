@@ -15,7 +15,9 @@ def _multiply(A, B):
     return [[sum(x * y for x, y in zip(a, b)) for b in _transpose(B)] for a in A]
 
 class Colour(object):
-    __matrices = {} ## TODO
+    __matrices = {
+### MATRICES %%%
+    }
 
     def __init__(self):
         pass
@@ -25,10 +27,7 @@ class Colour(object):
         L = x.L - y.L
         a = x.a - y.a
         b = x.b - y.b
-        L *= L
-        a *= a
-        b *= b
-        return (L + a + b) ** 0.5
+        return (L * L + a * a + b * b) ** 0.5
 
     def cache(self, other):
         try:
