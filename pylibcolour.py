@@ -12,15 +12,75 @@ def _transpose(M):
     return [[r[c] for r in M] for c in range(len(M[0]))]
 
 def _multiply(A, B):
-    return [[sum(x * y for x, y in zip(a, b)) for b in _transpose(B)] for a in A]
+    if isinstance(A[0], float):
+        A = [A]
+    if isinstance(B[0], float):
+        B = [B]
+    ar, ac, br, bc = len(A), len(A[0]), len(B), len(B[0])
+    if ac != br:
+        if ac == bc:
+            pass
+        elif ar == br:
+            A = _transpose(A)
+            B = _transpose(B)
+        else:
+            raise Exception('Invalid arguments')
+    else:
+        B = _transpose(B)
+    return [[sum(x * y for x, y in zip(a, b)) for b in B] for a in A]
+
+def _divrow(R, d):
+    return [c / d for c in R]
+
+def _subrow(A, B, m):
+    return [a - b * m for a, b in zip(A, B)]
+
+def _invert(M):
+    r, c = len(M), len(M[0])
+    if r != c:
+        raise Exception('Invalid arguments')
+    I = [[1 if x == y else 0 for x in range(c)] for y in range(r)]
+    M = [MR + IR for MR, IR in zip(M, I)]
+    for r1 in range(r):
+        if M[r1][r1] == 0:
+            for r2 in range(r1 + 1, r):
+                if M[r2][r1] != 0:
+                    break
+            if r2 == r:
+                raise Exception('Not invertable')
+            M[r1], M[r2] = M[r2], M[r1]
+        M[r1] = _divrow(M[r1], M[r1][r1])
+        for r2 in range(r1 + 1, r):
+            M[r2] = _subrow(M[r2], M[r1], M[r2][r1])
+    for r1 in reversed(range(r)):
+        for r2 in reversed(range(r1)):
+            M[r2] = _subrow(M[r2], M[r1], M[r2][r1])
+    return [R[c:] for R in M]
 
 class Colour(object):
     __matrices = {
 ### MATRICES %%%
     }
 
-    def __init__(self):
-        pass
+    def __init__(self, args, name, linear):
+        self.name = name
+        self.linear = linear
+        if len(args) == 0:
+            ps = (None, None, None)
+        else:
+            ps = None
+            if len(args) == 1:
+                args = args[0]
+                if isinstance(args, Colour):
+                    ps = Colour.__convert(args, self)
+            if ps is None:
+                def conv(a):
+                    try:
+                        return float(a)
+                    except ValueError:
+                        return float.fromhex(a)
+                ps = tuple(conv(a) for a in args)
+        self.set_params(*ps)
 
     def delta_e(self, other):
         x, y = CIELAB(self), CIELAB(other)
@@ -73,40 +133,24 @@ class Colour(object):
     def matrix_id(self):
         return self.name
 
-    def __init(self, args, name, linear):
-        self.name = name
-        self.linear = linear
-        if len(args) == 0:
-            return (None, None, None)
-        if len(args) == 1:
-            args = args[0]
-            if isinstance(args, Colour):
-                return Colour.__convert(args, self)
-        def conv(a):
-            try:
-                return float(a):
-            except ValueError:
-                return float.fromhex(a)
-        return tuple(conv(a) for a in args)
-
     def __repr__(self):
         def r(x):
-            if type(a) is float:
-                return repr(a.hex())
-            elif type(a) is tuple:
-                if len(a) == 1:
-                    return '(%r,)' % a[0]
-                return '(%s)' % ', '.join(map(r, a))
-            elif type(a) is list:
-                return '[%s]' % ', '.join(map(r, a))
+            if type(x) is float:
+                return repr(x.hex())
+            elif type(x) is tuple:
+                if len(x) == 1:
+                    return '(%r,)' % x[0]
+                return '(%s)' % ', '.join(map(r, x))
+            elif type(x) is list:
+                return '[%s]' % ', '.join(map(r, x))
             else:
-                return repr(a)
+                return repr(x)
         va = self.get_params()
         kw = self.get_configuration()
         s = []
         for v in va:
             s.append(r(v))
-        for k, v in kw:
+        for k, v in kw.items():
             s.append('%s = %s' % (k, r(v)))
         return '%s(%s)' % (self.name, ', '.join(s))
 
@@ -179,22 +223,22 @@ class Colour(object):
                 return (w * (fr.u - to.u0), w * (fr.v - to.v0), fr.Y)
 
         elif isinstance(to, CIELUV):
-            if isinstance(fr, CIELUhuv):
-                pi2 = 2. * _math.pi
+            if isinstance(fr, CIELChuv):
+                pi2 = 2. * __math.pi
                 if to.white.X != fr.white.X or to.white.Y != fr.white.Y or to.white.Z != fr.white.Z:
-                    fr = CIELUhuv(CIEXYZ(fr), one_revolution = pi2)
+                    fr = CIELChuv(CIEXYZ(fr), one_revolution = pi2)
                 elif fr.one_revolution != pi2:
-                    fr = CIELUhuv(fr.L, fr.C, fr.h * pi2 / fr.one_revolution, one_revolution = pi2)
-                return (fr.L, fr.C * _math.cos(fr.h), fr.C * _math.sin(fr.h))
+                    fr = CIELChuv(fr.L, fr.C, fr.h * pi2 / fr.one_revolution, one_revolution = pi2)
+                return (fr.L, fr.C * __math.cos(fr.h), fr.C * __math.sin(fr.h))
             else:
                 if isinstance(fr, CIELUV):
                     if fr.white.X == to.white.X and fr.white.Y == to.white.Y and fr.white.Z == to.white.Z:
                         return fr.get_params()
                 if not isinstance(fr, CIEXYZ):
                     fr = CIEXYZ(fr)
-                wx, wy, x, y = to.white.X, to.white.Y, fr.x, fr.y
+                wx, wy, x, y = to.white.X, to.white.Y, fr.X, fr.Y
                 wt = wx + 15. * wy + 3. * to.white.Z
-                t  =  x + 15. *  y + 3. * fr.z
+                t  =  x + 15. *  y + 3. * fr.Z
                 u = 4. * (x / t - wx / wt)
                 v = 9. * (y / t - wy / wt)
                 L = y / wy
@@ -214,7 +258,7 @@ class Colour(object):
                 fr = CIELUV(fr, white = to.white)
             elif to.white.X != fr.white.X or to.white.Y != fr.white.Y or to.white.Z != fr.white.Z:
                 fr = CIELUV(fr, white = to.white)
-            h = _math.atan2(fr.v, fr.u) / (2. * _math.pi) * to.one_revolution
+            h = __math.atan2(fr.v, fr.u) / (2. * __math.pi) * to.one_revolution
             if h < 0:
                 h += to.one_revolution
             return (fr.L, (fr.u * fr.u + fr.v * fr.v) ** 0.5, h)
@@ -329,13 +373,13 @@ class RGB(Colour):
             return self.gamma == other.gamma
 
     class RegularTransferFunction(object):
-        def __init__(self, gamma, offset, slope, transition, transitioninv):
+        def __init__(self, gamma, offset, slope, transition):
             self.gamma = gamma
             self.invgamma = 1. / gamma
             self.offset = offset
             self.slope = slope
             self.transition = transition
-            self.transitioninv = transitioninv
+            self.transitioninv = transition * slope
         def encode(self, *rgb):
             def f(t):
                 if t <= self.transition:
@@ -349,8 +393,8 @@ class RGB(Colour):
                 return _pow((t + self.offset) / (1. + self.offset), self.gamma)
             return tuple(f(x) for x in rgb)
         def __repr__(self):
-            p = (self.gamma, self.offset, self.slope, self.transition, self.transitioninv)
-            return 'RGB.RegularTransferFunction(%r, %r, %r, %r, %r)' % tuple(x.hex() for x in p)
+            p = (self.gamma.hex(), self.offset.hex(), self.slope.hex(), self.transition.hex())
+            return 'RGB.RegularTransferFunction(%r, %r, %r, %r)' % p
         def same(self, other):
             if self is other:
                 return True
@@ -363,8 +407,6 @@ class RGB(Colour):
             if self.slope != other.slope:
                 return False
             if self.transition != other.transition:
-                return False
-            if self.transitioninv != other.transitioninv:
                 return False
             return True
 
@@ -401,7 +443,52 @@ class RGB(Colour):
         self.white_b = white_b
         self.M, self.Minv = M, Minv
         self.colour_space = colour_space
-        (self.R, self.G, self.B) = self.__init(args, 'RGB', True)
+        self.red.Y, self.green.Y, self.blue.Z = 1, 1, 1
+
+        if self.M is not None:
+            self.Minv = _invert(M)
+            self.__set_primaries()
+        elif self.Minv is not None:
+            self.M = _invert(Minv)
+            self.__set_primaries()
+        else:
+            self.__set_matrices()
+
+        Colour.__init__(self, args, 'RGB', True)
+
+    def __set_primaries(self):
+        Sr = self.M[1][0] * self.white_r
+        Sg = self.M[1][1] * self.white_g
+        Sb = self.M[1][2] * self.white_b
+        r = CIEXYZ(self.M[0][0] / Sr, 1, self.M[1][0] / Sr)
+        g = CIEXYZ(self.M[0][1] / Sg, 1, self.M[1][1] / Sg)
+        b = CIEXYZ(self.M[0][2] / Sb, 1, self.M[1][2] / Sb)
+        M = [[r.X, g.X, b.X],
+             [r.Y, g.Y, b.Y],
+             [r.Z, g.Z, b.Z]]
+        self.M = _invert(M)
+        w = CIEXYZ(Sr, Sg, Sb)
+        self.red   = CIExyY(r)
+        self.green = CIExyY(g)
+        self.blue  = CIExyY(b)
+        self.white = CIExyY(w)
+
+    def __set_matrices(self):
+        r, g, b = CIEXYY(self.red),    CIEXYY(self.green),  CIEXYY(self.blue)
+        r, g, b = CIEXYZ(r.x, r.y, 1), CIEXYZ(g.x, g.y, 1), CIEXYZ(b.x, b.y, 1)
+        w = CIEXYZ(self.white)
+        M = [[r.X, g.X, b.X],
+             [r.Y, g.Y, b.Y],
+             [r.Z, g.Z, b.Z]]
+        M = _invert(M)
+        Sr = (M[0][0] * w.X + M[0][1] * w.Y + M[0][2] * w.Z) / self.white_r
+        Sg = (M[1][0] * w.X + M[1][1] * w.Y + M[1][2] * w.Z) / self.white_g
+        Sb = (M[2][0] * w.X + M[2][1] * w.Y + M[2][2] * w.Z) / self.white_b
+        self.M = [[Sr * r.X, Sg * g.X, Sb * b.X],
+                  [Sr * r.Y, Sg * g.Y, Sb * b.Y],
+                  [Sr * r.Z, Sg * g.Z, Sb * b.Z]]
+        self.Minv = _invert(self.M)
+
     def matrix_id(self):
         return list(list(r) for r in self.M)
     def get_params(self, linear = None):
@@ -415,9 +502,9 @@ class RGB(Colour):
         if linear is None or linear != self.with_transfer or self.transfer_function is None:
             self.R, self.G, self.B = R, G, B
         elif linear:
-            self.R, self.G, self.B = return self.transfer_function.encode(R, G, B)
+            self.R, self.G, self.B = self.transfer_function.encode(R, G, B)
         else:
-            self.R, self.G, self.B = return self.transfer_function.decode(R, G, B)
+            self.R, self.G, self.B = self.transfer_function.decode(R, G, B)
     def get_configuration(self):
         return {'with_transfer' : self.with_transfer,
                 'transfer_function': self.transfer_function,
@@ -435,7 +522,7 @@ class RGB(Colour):
 class sRGB(Colour):
     def __init__(self, *args, with_transfer = True):
         self.with_transfer = with_transfer
-        (self.R, self.G, self.B) = self.__init(args, 'sRGB', True)
+        Colour.__init__(self, args, 'sRGB', True)
     def get_params(self, linear = None):
         if linear is None or linear != self.with_transfer:
             return (self.R, self.G, self.B)
@@ -460,7 +547,7 @@ class sRGB(Colour):
             self.B = sRGB.decode_transfer(self.B)
     @staticmethod
     def encode_transfer(t):
-	sign = 1
+        sign = 1
         if t < 0:
             t = -t
             sign = -1
@@ -479,7 +566,7 @@ class sRGB(Colour):
 
 class CIExyY(Colour):
     def __init__(self, *args):
-        (self.x, self.y, self.Y) = self.__init(args, 'CIExyY', False)
+        Colour.__init__(self, args, 'CIExyY', False)
     def get_params(self):
         return (self.x, self.y, self.Y)
     def set_params(self, x, y, Y):
@@ -487,7 +574,7 @@ class CIExyY(Colour):
 
 class CIEXYZ(Colour):
     def __init__(self, *args):
-        (self.X, self.Y, self.Z) = self.__init(args, 'CIEXYZ', True)
+        Colour.__init__(self, args, 'CIEXYZ', True)
     def get_linear_params(self):
         return (self.X, self.Y, self.Z)
     def set_linear_params(self, X, Y, Z):
@@ -495,7 +582,7 @@ class CIEXYZ(Colour):
 
 class CIELAB(Colour):
     def __init__(self, *args):
-        (self.L, self.a, self.b) = self.__init(args, 'CIELAB', False)
+        Colour.__init__(self, args, 'CIELAB', False)
     def get_params(self):
         return (self.L, self.a, self.b)
     def set_params(self, L, a, b):
@@ -509,7 +596,7 @@ class CIELAB(Colour):
 
 class YIQ(Colour):
     def __init__(self, *args):
-        (self.Y, self.I, self.Q) = self.__init(args, 'YIQ', True)
+        Colour.__init__(self, args, 'YIQ', True)
     def get_linear_params(self):
         return (self.Y, self.I, self.Q)
     def set_linear_params(self, Y, I, Q):
@@ -517,7 +604,7 @@ class YIQ(Colour):
 
 class YDbDr(Colour):
     def __init__(self, *args):
-        (self.Y, self.Db, self.Dr) = self.__init(args, 'YDbDr', True)
+        Colour.__init__(self, args, 'YDbDr', True)
     def get_linear_params(self):
         return (self.Y, self.Db, self.Dr)
     def set_linear_params(self, Y, Db, Dr):
@@ -525,7 +612,7 @@ class YDbDr(Colour):
 
 class YUV(Colour):
     def __init__(self, *args):
-        (self.Y, self.U, self.V) = self.__init(args, 'YUV', True)
+        Colour.__init__(self, args, 'YUV', True)
     def get_linear_params(self):
         return (self.Y, self.U, self.V)
     def set_linear_params(self, Y, U, V):
@@ -533,7 +620,7 @@ class YUV(Colour):
 
 class YPbPr(Colour):
     def __init__(self, *args):
-        (self.Y, self.Pb, self.Pr) = self.__init(args, 'YPbPr', True)
+        Colour.__init__(self, args, 'YPbPr', True)
     def get_linear_params(self):
         return (self.Y, self.Pb, self.Pr)
     def set_linear_params(self, Y, Pb, Pr):
@@ -541,7 +628,7 @@ class YPbPr(Colour):
 
 class YCgCo(Colour):
     def __init__(self, *args):
-        (self.Y, self.Cg, self.Co) = self.__init(args, 'YCgCo', True)
+        Colour.__init__(self, args, 'YCgCo', True)
     def get_linear_params(self):
         return (self.Y, self.Cg, self.Co)
     def set_linear_params(self, Y, Cg, Co):
@@ -549,16 +636,17 @@ class YCgCo(Colour):
 
 class CIE1960UCS(Colour):
     def __init__(self, *args):
-        (self.u, self.v, self.Y) = self.__init(args, 'CIE1960UCS', False)
+        Colour.__init__(self, args, 'CIE1960UCS', False)
     def get_params(self):
         return (self.u, self.v, self.Y)
     def set_params(self, u, v, Y):
         self.u, self.v, self.Y = u, v, Y
 
 class CIEUVW(Colour):
-    def __init__(self, *args, u0 = None, v0 = None): # TODO default to D65
-        self.u0, self.v0 = u0, v0
-        (self.U, self.V, self.W) = self.__init(args, 'CIEUVW', False)
+    def __init__(self, *args, u0 = None, v0 = None):
+        self.u0 = u0 if u0 is not None else float.fromhex('0x1.952d1fde70581p-3')
+        self.v0 = v0 if v0 is not None else float.fromhex('0x1.3fb7b707d8df3p-2')
+        Colour.__init__(self, args, 'CIEUVW', False)
     def get_params(self):
         return (self.U, self.V, self.W)
     def set_params(self, U, V, W):
@@ -569,7 +657,7 @@ class CIEUVW(Colour):
 class CIELUV(Colour):
     def __init__(self, *args, white = None):
         self.white = CIEXYZ(white if white is not None else Illuminants[2]['D65'])
-        (self.L, self.u, self.v) = self.__init(args, 'CIELUV', False)
+        Colour.__init__(self, args, 'CIELUV', False)
     def get_params(self):
         return (self.L, self.u, self.v)
     def set_params(self, L, u, v):
@@ -584,7 +672,7 @@ class CIELChuv(Colour):
             self.one_revolution = float(one_revolution)
         except ValueError:
             self.one_revolution = float.fromhex(one_revolution)
-        (self.L, self.C, self.h) = self.__init(args, 'CIELChuv', False)
+        Colour.__init__(self, args, 'CIELChuv', False)
     def get_params(self):
         return (self.L, self.C, self.h)
     def set_params(self, L, C, h):
@@ -594,7 +682,7 @@ class CIELChuv(Colour):
 
 class YES(Colour):
     def __init__(self, *args):
-        (self.Y, self.E, self.S) = self.__init(args, 'YES', True)
+        Colour.__init__(self, args, 'YES', True)
     def get_linear_params(self):
         return (self.Y, self.E, self.S)
     def set_linear_params(self, Y, E, S):
@@ -602,47 +690,47 @@ class YES(Colour):
 
 Illuminants = {
     2 : {
-        'A'   = CIExyY(0.447573514098910552050369915378, 0.407439444306660847328060981454, 1.),
-        'B'   = CIExyY(0.348407693041403399014654951316, 0.351617234807268863594487129376, 1.),
-        'C'   = CIExyY(0.310058473730255412803558101587, 0.316149707523236456196968902077, 1.),
-        'D50' = CIExyY(0.345668037029273123028616510055, 0.358496838937619077825047497754, 1.),
-        'D55' = CIExyY(0.332424102468830251488896010414, 0.347428039087666229445261478759, 1.),
-        'D65' = CIExyY(0.312726871026564878786047074755, 0.329023206641284038376227272238, 1.),
-        'D75' = CIExyY(0.299022300412497055166483050925, 0.314852737888341893679466920730, 1.),
-        'E'   = CIExyY(1. / 3., 1. / 3., 1.),
-        'F1'  = CIExyY(0.313062433035651010992950205036, 0.337106477918307445573731229160, 1.),
-        'F2'  = CIExyY(0.372068154452825539113547392844, 0.375122558203110079144693145281, 1.),
-        'F3'  = CIExyY(0.409090035308107391465171076561, 0.394117134255365986206243178458, 1.),
-        'F4'  = CIExyY(0.440181095827666568620628595454, 0.403090691158138336724903183494, 1.),
-        'F5'  = CIExyY(0.313756583095696484075887155996, 0.345160794752101929283583103825, 1.),
-        'F6'  = CIExyY(0.377882361062687466279896852939, 0.388192885537868959122675960316, 1.),
-        'F7'  = CIExyY(0.312852472915475354753311876266, 0.329174178033567632617462095368, 1.),
-        'F8'  = CIExyY(0.345805753550315952971061506105, 0.358617583214377477762724311106, 1.),
-        'F9'  = CIExyY(0.374105245592801061160770359493, 0.372672400924498159469067104510, 1.),
-        'F10' = CIExyY(0.346086913993929323751785886998, 0.358751605952200347537939251197, 1.),
-        'F11' = CIExyY(0.380537485483030235577928124258, 0.376915309293930078649026427229, 1.),
-        'F12' = CIExyY(0.437023901312296902954557253906, 0.404214327891585678553809657387, 1.)
+        'A'   : CIExyY(0.447573514098910552050369915378, 0.407439444306660847328060981454, 1.),
+        'B'   : CIExyY(0.348407693041403399014654951316, 0.351617234807268863594487129376, 1.),
+        'C'   : CIExyY(0.310058473730255412803558101587, 0.316149707523236456196968902077, 1.),
+        'D50' : CIExyY(0.345668037029273123028616510055, 0.358496838937619077825047497754, 1.),
+        'D55' : CIExyY(0.332424102468830251488896010414, 0.347428039087666229445261478759, 1.),
+        'D65' : CIExyY(0.312726871026564878786047074755, 0.329023206641284038376227272238, 1.),
+        'D75' : CIExyY(0.299022300412497055166483050925, 0.314852737888341893679466920730, 1.),
+        'E'   : CIExyY(1. / 3., 1. / 3., 1.),
+        'F1'  : CIExyY(0.313062433035651010992950205036, 0.337106477918307445573731229160, 1.),
+        'F2'  : CIExyY(0.372068154452825539113547392844, 0.375122558203110079144693145281, 1.),
+        'F3'  : CIExyY(0.409090035308107391465171076561, 0.394117134255365986206243178458, 1.),
+        'F4'  : CIExyY(0.440181095827666568620628595454, 0.403090691158138336724903183494, 1.),
+        'F5'  : CIExyY(0.313756583095696484075887155996, 0.345160794752101929283583103825, 1.),
+        'F6'  : CIExyY(0.377882361062687466279896852939, 0.388192885537868959122675960316, 1.),
+        'F7'  : CIExyY(0.312852472915475354753311876266, 0.329174178033567632617462095368, 1.),
+        'F8'  : CIExyY(0.345805753550315952971061506105, 0.358617583214377477762724311106, 1.),
+        'F9'  : CIExyY(0.374105245592801061160770359493, 0.372672400924498159469067104510, 1.),
+        'F10' : CIExyY(0.346086913993929323751785886998, 0.358751605952200347537939251197, 1.),
+        'F11' : CIExyY(0.380537485483030235577928124258, 0.376915309293930078649026427229, 1.),
+        'F12' : CIExyY(0.437023901312296902954557253906, 0.404214327891585678553809657387, 1.)
     },
     10 : {
-        'A'   = CIExyY(0.451173939693730152722395132514, 0.405936604212625562482230634487, 1.),
-        'B'   = CIExyY(0.349819801494100579564161535018, 0.352687989927865819250740742063, 1.),
-        'C'   = CIExyY(0.310388663270034004248998371622, 0.319050711366790695766582075521, 1.),
-        'D50' = CIExyY(0.347729429961154856698613002663, 0.359522508516545380441442603114, 1.),
-        'D55' = CIExyY(0.334116336430253457745465084372, 0.348766090975953568786849245953, 1.),
-        'D65' = CIExyY(0.313823646938709621689866935412, 0.330998985489933561510156323493, 1.),
-        'D75' = CIExyY(0.299679971345752860223399238748, 0.317403239854836705102769656150, 1.),
-        'E'   = CIExyY(1. / 3, 1. / 3, 1.),
-        'F1'  = CIExyY(0.318098801070991199502202562144, 0.335489451474129951602520804954, 1.),
-        'F2'  = CIExyY(0.379274832262508854174853922814, 0.367227934400669309145115448700, 1.),
-        'F3'  = CIExyY(0.417644682102624287267644831445, 0.383124504918675723441623404142, 1.),
-        'F4'  = CIExyY(0.449247699162001246087072559021, 0.390605475879083674506375700730, 1.),
-        'F5'  = CIExyY(0.319739939104951298443069163113, 0.342367055369128092667807550242, 1.),
-        'F6'  = CIExyY(0.386626908526034762658696308790, 0.378372201588893453116924092683, 1.),
-        'F7'  = CIExyY(0.315645637312390425766039925293, 0.329508145132134222521358424274, 1.),
-        'F8'  = CIExyY(0.348965563721531868424108324689, 0.359317299140994528272585739614, 1.),
-        'F9'  = CIExyY(0.378258900384649654480284652891, 0.370371375730762564248976786985, 1.),
-        'F10' = CIExyY(0.350893389986753234666139178444, 0.354302210111646531665030579461, 1.),
-        'F11' = CIExyY(0.385435391037903751776383387551, 0.371094786781121399599214782938, 1.),
-        'F12' = CIExyY(0.442654456042513022584472537346, 0.397060737666593277506166259627, 1.)
+        'A'   : CIExyY(0.451173939693730152722395132514, 0.405936604212625562482230634487, 1.),
+        'B'   : CIExyY(0.349819801494100579564161535018, 0.352687989927865819250740742063, 1.),
+        'C'   : CIExyY(0.310388663270034004248998371622, 0.319050711366790695766582075521, 1.),
+        'D50' : CIExyY(0.347729429961154856698613002663, 0.359522508516545380441442603114, 1.),
+        'D55' : CIExyY(0.334116336430253457745465084372, 0.348766090975953568786849245953, 1.),
+        'D65' : CIExyY(0.313823646938709621689866935412, 0.330998985489933561510156323493, 1.),
+        'D75' : CIExyY(0.299679971345752860223399238748, 0.317403239854836705102769656150, 1.),
+        'E'   : CIExyY(1. / 3, 1. / 3, 1.),
+        'F1'  : CIExyY(0.318098801070991199502202562144, 0.335489451474129951602520804954, 1.),
+        'F2'  : CIExyY(0.379274832262508854174853922814, 0.367227934400669309145115448700, 1.),
+        'F3'  : CIExyY(0.417644682102624287267644831445, 0.383124504918675723441623404142, 1.),
+        'F4'  : CIExyY(0.449247699162001246087072559021, 0.390605475879083674506375700730, 1.),
+        'F5'  : CIExyY(0.319739939104951298443069163113, 0.342367055369128092667807550242, 1.),
+        'F6'  : CIExyY(0.386626908526034762658696308790, 0.378372201588893453116924092683, 1.),
+        'F7'  : CIExyY(0.315645637312390425766039925293, 0.329508145132134222521358424274, 1.),
+        'F8'  : CIExyY(0.348965563721531868424108324689, 0.359317299140994528272585739614, 1.),
+        'F9'  : CIExyY(0.378258900384649654480284652891, 0.370371375730762564248976786985, 1.),
+        'F10' : CIExyY(0.350893389986753234666139178444, 0.354302210111646531665030579461, 1.),
+        'F11' : CIExyY(0.385435391037903751776383387551, 0.371094786781121399599214782938, 1.),
+        'F12' : CIExyY(0.442654456042513022584472537346, 0.397060737666593277506166259627, 1.)
     }
 }

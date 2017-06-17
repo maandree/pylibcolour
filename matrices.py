@@ -173,7 +173,7 @@ if __name__ == '__main__':
 
     def fmt(x):
         return 'float.fromhex(%r)' % float(x).hex()
-    print('This dictionary has been generated from ./matrices.py')
+    print('# This dictionary has been generated from ./matrices.py')
     for (f, t) in sorted(matrices.keys()):
         M = matrices[(f, t)]
         print('')
