@@ -7,3 +7,4 @@ __pycache__/
 *.bak
 *.swo
 *.swp
+/lib.py
