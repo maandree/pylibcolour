@@ -2,11 +2,11 @@
 
 import math as _math
 
+def _pow(x, p):
+    return -((-x) ** p) if x < 0 else x ** p
+
 def _cbrt(x):
-    if x < 0:
-        return -((-x) ** (1. / 3.))
-    else:
-        return x ** (1. / 3.)
+    return _pow(x, 1. / 3.)
 
 class Colour(object):
     def __init__(self):
@@ -21,6 +21,18 @@ class Colour(object):
         a *= a
         b *= b
         return (L + a + b) ** 0.5
+
+    def cache(self, other):
+        pass
+
+    def decache(self, other):
+        pass
+
+    def get_configuration(self):
+        return {}
+
+    def copy(self):
+        return type(self)(*(self.get_params()), **(self.get_configuration()))
 
     def __init(self, args, name, linear):
         self.name = name
@@ -39,16 +51,61 @@ class Colour(object):
         return tuple(conv(a) for a in args)
 
     def __repr__(self):
-        (a, b, c) = self.get_params()
-        return '%s(%r, %r, %r)' % (self.name, a.hex(), b.hex(), c.hex())
+        def r(x):
+            if type(a) is float:
+                return repr(a.hex())
+            elif type(a) is tuple:
+                if len(a) == 1:
+                    return '(%r,)' % a[0]
+                return '(%s)' % ', '.join(map(r, a))
+            elif type(a) is list:
+                return '[%s]' % ', '.join(map(r, a))
+            else:
+                return repr(a)
+        va = self.get_params()
+        kw = self.get_configuration()
+        s = []
+        for v in va:
+            s.append(r(v))
+        for k, v in kw:
+            s.append('%s = %s' % (k, r(v)))
+        return '%s(%s)' % (self.name, ', '.join(s))
 
     @staticmethod
     def __matrix_convert(fr, to, a, b, c): # TODO
-        pass
+        return (m11 * a + m12 * b + m13 * c,
+                m21 * a + m22 * b + m23 * c,
+                m31 * a + m32 * b + m33 * c)
 
     @staticmethod
     def __convert(fr, to):
-        if isinstance(to, sRGB) and isinstance(fr, sRGB):
+        if isinstance(to, RGB):
+            have_transfer = False
+            with_transfer = to.with_transfer
+            while True:
+                if isinstance(fr, RGB):
+                    if fr.M == to.M:
+                        (R, G, B) = fr.get_params()
+                        have_transfer = fr.with_transfer
+                        if have_transfer and with_transfer and not to.transfer_function.same(fr.transfer_function):
+                            (R, G, B) = fr.transfer_function.decode(R, G, B)
+                            have_transfer = False
+                        break
+                if not isinstance(fr, CIEXYZ):
+                    fr = CIEXYZ(fr)
+                R = to.Minv[0][0] * fr.X + to.Minv[0][1] * fr.Y + to.Minv[0][2] * fr.Z
+                G = to.Minv[1][0] * fr.X + to.Minv[1][1] * fr.Y + to.Minv[1][2] * fr.Z
+                B = to.Minv[2][0] * fr.X + to.Minv[2][1] * fr.Y + to.Minv[2][2] * fr.Z
+            if have_transfer != with_transfer:
+                if with_transfer:
+                    if to.transfer_function is not None:
+                        (R, G, B) = to.transfer_function.encode(R, G, B)
+                else:
+                    if fr.transfer_function is not None:0
+                        (R, G, B) = fr.transfer_function.decode(R, G, B)
+            return (R, G, B)
+
+        elif isinstance(to, sRGB) and isinstance(fr, sRGB):
             if to.with_transfer == fr.with_transfer:
                 return fr.get_params()
             elif to.with_transfer:
@@ -107,6 +164,15 @@ class Colour(object):
             if h < 0:
                 h += to.one_revolution
             return (fr.L, (fr.u * fr.u + fr.v * fr.v) ** 0.5, h)
+
+        elif isinstance(fr, RGB) and isinstance(to, CIEXYZ):
+            (R, G, B) = fr.get_params()
+            if fr.with_transfer and fr.transfer_function is not None:
+                (R, G, B) = fr.transfer_function.decode(R, G, B)
+            X = fr.M[0][0] * R + fr.M[0][1] * G + fr.M[0][2] * B
+            Y = fr.M[1][0] * R + fr.M[1][1] * G + fr.M[1][2] * B
+            Z = fr.M[2][0] * R + fr.M[2][1] * G + fr.M[2][2] * B
+            return (X, Y, Z)
 
         elif to.name == fr.name:
             return fr.get_params()
@@ -192,12 +258,120 @@ class Colour(object):
 
         raise Exception('Don\'t know how to convert from %s to %s' % (type(fr), type(to)))
 
-# TODO RGB
+class RGB(Colour):
+    class SimpleTransferFunction(object):
+        def __init__(self, gamma):
+            self.gamma = gamma
+            self.invgamma = 1. / gamma
+        def encode(self, *rgb):
+            return tuple(_pow(x, self.invgamma) for x in rgb)
+        def decode(self, *rgb):
+            return tuple(_pow(x, self.gamma) for x in rgb)
+        def __repr__(self):
+            return 'RGB.SimpleTransferFunction(%r)' % self.gamma.hex()
+        def same(self, other):
+            if self is other:
+                return True
+            if other is None or type(self) is not type(other):
+                return False
+            return self.gamma == other.gamma
+
+    class RegularTransferFunction(object):
+        def __init__(self, gamma, offset, slope, transition, transitioninv):
+            self.gamma = gamma
+            self.invgamma = 1. / gamma
+            self.offset = offset
+            self.slope = slope
+            self.transition = transition
+            self.transitioninv = transitioninv
+        def encode(self, *rgb):
+            def f(t):
+                if t <= self.transition:
+                    return self.slope * t
+                return (1. + self.offset) * _pow(t, self.invgamma) - self.offset
+            return tuple(f(x) for x in rgb)
+        def decode(self, *rgb):
+            def f(t):
+                if t <= self.transitioninv:
+                    return t / self.slope
+                return _pow((t + self.offset) / (1. + self.offset), self.gamma)
+            return tuple(f(x) for x in rgb)
+        def __repr__(self):
+            p = (self.gamma, self.offset, self.slope, self.transition, self.transitioninv)
+            return 'RGB.RegularTransferFunction(%r, %r, %r, %r, %r)' % tuple(x.hex() for x in p)
+        def same(self, other):
+            if self is other:
+                return True
+            if other is None or type(self) is not type(other):
+                return False
+            if self.gamma != other.gamma:
+                return False
+            if self.offset != other.offset:
+                return False
+            if self.slope != other.slope:
+                return False
+            if self.transition != other.transition:
+                return False
+            if self.transitioninv != other.transitioninv:
+                return False
+            return True
+
+    class CustomTransferFunction(object):
+        def __init__(self, encoded_red, decoded_red, encoded_green = None,
+                     decoded_green = None, encoded_blue = None, decoded_blue = None):
+            self.encoded_red   = encoded_red
+            self.decoded_red   = decoded_red
+            self.encoded_green = encoded_green if encoded_green is not None else self.encoded_red
+            self.decoded_green = decoded_green if decoded_green is not None else self.decoded_red
+            self.encoded_blue  = encoded_blue  if encoded_blue  is not None else self.encoded_green
+            self.decoded_blue  = decoded_blue  if decoded_blue  is not None else self.decoded_green
+        def encode(self, R, G, B):
+            return (self.encode_red(R), self.encode_green(G), self.encode_blue(G))
+        def decode(self, R, G, B):
+            return (self.decode_red(R), self.decode_green(G), self.decode_blue(G))
+        def __repr__(self):
+            p = (self.encoded_red, self.decoded_red, self.encoded_green,
+                 self.decoded_green, self.encoded_blue, self.decoded_blue)
+            return 'RGB.CustomTransferFunction(%r, %r, %r, %r, %r, %r)' % p
+
+    def __init__(self, *args, with_transfer = True, transfer_function = None,
+                 red = None, green = None, blue = None, white = None,
+                 white_r = 1, white_g = 1, white_b = 1,
+                 M = None, Minv = None, colour_space = None):
+        self.with_transfer = with_transfer and transfer_function is not None
+        self.transfer_function = transfer_function
+        self.red   = CIExyY(red)   if red   is not None else None
+        self.green = CIExyY(green) if green is not None else None
+        self.blue  = CIExyY(blue)  if blue  is not None else None
+        self.white = CIExyY(white) if white is not None else None
+        self.white_r = white_r
+        self.white_g = white_g
+        self.white_b = white_b
+        self.M, self.Minv = M, Minv
+        self.colour_space = colour_space
+        (self.R, self.G, self.B) = self.__init(args, 'RGB', True)
+    def get_params(self):
+        return (self.R, self.G, self.B)
+    def set_params(self, R, G, B):
+        self.R, self.G, self.B = R, G, B
+    def get_configuration(self):
+        return {'with_transfer' : self.with_transfer,
+                'transfer_function': self.transfer_function,
+                'red': self.red,
+                'green': self.green,
+                'blue': self.blue,
+                'white': self.white,
+                'white_r': self.white_r,
+                'white_g': self.white_g,
+                'white_b': self.white_b,
+                'M': self.M,
+                'M': self.Minv,
+                'colour_space': self.colour_space}
 
 class sRGB(Colour):
     def __init__(self, *args, with_transfer = True):
         self.with_transfer = with_transfer
-        (self.R, self.G, self.B) = self.__init(args, 'sRGB', False)
+        (self.R, self.G, self.B) = self.__init(args, 'sRGB', True)
     def get_params(self):
         return (self.R, self.G, self.B)
     def set_params(self, R, G, B):
@@ -218,8 +392,8 @@ class sRGB(Colour):
             sign = -1
         t = t / 12.92 if t <= 0.0031306684425217108 * 12.92 else ((t + 0.055) / 1.055) ** 2.4
         return t * sign
-    def __repr__(self):
-        return 'sRGB(%r, %r, %r, with_transfer = %r)' % (self.R.hex(), self.G.hex(), self.B.hex(), self.with_transfer)
+    def get_configuration(self):
+        return {'with_transfer' : self.with_transfer}
 
 class CIExyY(Colour):
     def __init__(self, *args):
@@ -246,7 +420,7 @@ class CIELAB(Colour):
         self.L, self.a, self.b = L, a, b
     @staticmethod
     def encode_transfer(t):
-        return t * t * t if t > 6. / 29. else  (t - 4. / 29.) * 108. / 841.
+        return t * t * t if t > 6. / 29. else (t - 4. / 29.) * 108. / 841.
     @staticmethod
     def decode_transfer(t):
         return _cbrt(t) if t > 216. / 24389. else t * 841. / 108. + 4. / 29.
@@ -307,8 +481,8 @@ class CIEUVW(Colour):
         return (self.U, self.V, self.W)
     def set_params(self, U, V, W):
         self.U, self.V, self.W = U, V, W
-    def __repr__(self):
-        return 'CIEUVW(%r, %r, %r, u0 = %r, v0 = %r)' % (self.U.hex(), self.V.hex(), self.W.hex(), self.u0.hex(), self.v0.hex())
+    def get_configuration(self):
+        return {'u0' : self.u0, 'v0' : self.v0}
 
 class CIELUV(Colour):
     def __init__(self, *args, white = None):
@@ -318,8 +492,8 @@ class CIELUV(Colour):
         return (self.L, self.u, self.v)
     def set_params(self, L, u, v):
         self.L, self.u, self.v = L, u, v
-    def __repr__(self):
-        return 'CIELUV(%r, %r, %r, white = %r)' % (self.L.hex(), self.u.hex(), self.v.hex(), self.white))
+    def get_configuration(self):
+        return {'white' : self.white}
 
 class CIELChuv(Colour):
     def __init__(self, *args, white = None, one_revolution = 360.):
@@ -333,9 +507,8 @@ class CIELChuv(Colour):
         return (self.L, self.C, self.h)
     def set_params(self, L, C, h):
         self.L, self.C, self.h = L, C, h
-    def __repr__(self):
-        p = (self.L.hex(), self.C.hex(), self.h.hex(), self.white, self.one_revolution.hex()))
-        return 'CIELChuv(%r, %r, %r, white = %r, one_revolution = %r)' % p
+    def get_configuration(self):
+        return {'white' : self.white, 'one_revolution' : self.one_revolution}
 
 class YES(Colour):
     def __init__(self, *args):
