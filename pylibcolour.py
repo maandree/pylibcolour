@@ -8,7 +8,15 @@ def _pow(x, p):
 def _cbrt(x):
     return _pow(x, 1. / 3.)
 
+def _transpose(M):
+    return [[r[c] for r in M] for c in range(len(M[0]))]
+
+def _multiply(A, B):
+    return [[sum(x * y for x, y in zip(a, b)) for b in _transpose(B)] for a in A]
+
 class Colour(object):
+    __matrices = {} ## TODO
+
     def __init__(self):
         pass
 
@@ -23,16 +31,48 @@ class Colour(object):
         return (L + a + b) ** 0.5
 
     def cache(self, other):
-        pass
+        try:
+            if isinstance(self, RGB) or isinstance(other, RGB):
+                to_ciexyz = self.M     if isinstance(self,  RGB) else Colour.__get_matrix(self.name, 'CIEXYZ')
+                fr_ciexyz = other.Minv if isinstance(other, RGB) else Colour.__get_matrix('CIEXYZ', other.name)
+                Colour.__matrices[(self.matrix_id(), other.matrix_id())] = _multiply(fr_ciexyz, to_ciexyz)
+                fr_ciexyz = self.Minv if isinstance(self,  RGB) else Colour.__get_matrix('CIEXYZ', self.name)
+                to_ciexyz = other.M   if isinstance(other, RGB) else Colour.__get_matrix(other.name, 'CIEXYZ')
+                Colour.__matrices[(other.matrix_id(), self.matrix_id())] = _multiply(fr_ciexyz, to_ciexyz)
+        except:
+            pass
 
     def decache(self, other):
-        pass
+        if isinstance(self, RGB) or isinstance(other, RGB):
+            try:
+                del Colour.__matrices[(self.matrix_id(), other.matrix_id())]
+            except:
+                pass
+            try:
+                del Colour.__matrices[(other.matrix_id(), self.matrix_id())]
+            except:
+                pass
 
     def get_configuration(self):
         return {}
 
     def copy(self):
         return type(self)(*(self.get_params()), **(self.get_configuration()))
+
+    def get_params(self, linear = None):
+        if linear is None or linear:
+            return self.get_linear_params()
+        else:
+            raise Exception('linear must be None or True')
+
+    def set_params(self, *args, linear = None):
+        if linear is None or linear:
+            return self.set_linear_params(*args)
+        else:
+            raise Exception('linear must be None or True')
+
+    def matrix_id(self):
+        return self.name
 
     def __init(self, args, name, linear):
         self.name = name
@@ -72,25 +112,42 @@ class Colour(object):
         return '%s(%s)' % (self.name, ', '.join(s))
 
     @staticmethod
-    def __matrix_convert(fr, to, a, b, c): # TODO
-        return (m11 * a + m12 * b + m13 * c,
-                m21 * a + m22 * b + m23 * c,
-                m31 * a + m32 * b + m33 * c)
+    def __get_matrix(fr, to):
+        return Colour.__matrices[(fr.matrix_id(), to.matrix_id())]
+
+    @staticmethod
+    def __matrix_convert(fr, to, a, b, c):
+        M = Colour.__get_matrix(fr, to)
+        return (M[1][1] * a + M[1][2] * b + M[1][3] * c,
+                M[2][1] * a + M[2][2] * b + M[2][3] * c,
+                M[3][1] * a + M[3][2] * b + M[3][3] * c)
 
     @staticmethod
     def __convert(fr, to):
+        try:
+            M = Colour.__get_matrix(fr, to)
+            if M is not None:
+                (a, b, c) = fr.get_params(linear = True)
+                (a, b, c) = (M[1][1] * a + M[1][2] * b + M[1][3] * c,
+                             M[2][1] * a + M[2][2] * b + M[2][3] * c,
+                             M[3][1] * a + M[3][2] * b + M[3][3] * c)
+                to = to.copy()
+                to.set_params(a, b, c, linear = True)
+                return to.get_params()
+        except:
+            pass
+
         if isinstance(to, RGB):
             have_transfer = False
             with_transfer = to.with_transfer
             while True:
-                if isinstance(fr, RGB):
-                    if fr.M == to.M:
-                        (R, G, B) = fr.get_params()
-                        have_transfer = fr.with_transfer
-                        if have_transfer and with_transfer and not to.transfer_function.same(fr.transfer_function):
-                            (R, G, B) = fr.transfer_function.decode(R, G, B)
-                            have_transfer = False
-                        break
+                if isinstance(fr, RGB) and fr.M == to.M:
+                    (R, G, B) = fr.get_params()
+                    have_transfer = fr.with_transfer
+                    if have_transfer and with_transfer and not to.transfer_function.same(fr.transfer_function):
+                        (R, G, B) = fr.transfer_function.decode(R, G, B)
+                        have_transfer = False
+                    break
                 if not isinstance(fr, CIEXYZ):
                     fr = CIEXYZ(fr)
                 R = to.Minv[0][0] * fr.X + to.Minv[0][1] * fr.Y + to.Minv[0][2] * fr.Z
@@ -101,17 +158,15 @@ class Colour(object):
                     if to.transfer_function is not None:
                         (R, G, B) = to.transfer_function.encode(R, G, B)
                 else:
-                    if fr.transfer_function is not None:0
+                    if fr.transfer_function is not None:
                         (R, G, B) = fr.transfer_function.decode(R, G, B)
             return (R, G, B)
 
         elif isinstance(to, sRGB) and isinstance(fr, sRGB):
             if to.with_transfer == fr.with_transfer:
                 return fr.get_params()
-            elif to.with_transfer:
-                return (sRGB.encode_transfer(fr.R), sRGB.encode_transfer(fr.G), sRGB.encode_transfer(fr.B))
             else:
-                return (sRGB.decode_transfer(fr.R), sRGB.decode_transfer(fr.G), sRGB.decode_transfer(fr.B))
+                return fr.get_params(linear = not to.with_transfer)
 
         elif isinstance(to, CIEUVW):
             if isinstance(fr, CIEUVW):
@@ -166,9 +221,7 @@ class Colour(object):
             return (fr.L, (fr.u * fr.u + fr.v * fr.v) ** 0.5, h)
 
         elif isinstance(fr, RGB) and isinstance(to, CIEXYZ):
-            (R, G, B) = fr.get_params()
-            if fr.with_transfer and fr.transfer_function is not None:
-                (R, G, B) = fr.transfer_function.decode(R, G, B)
+            (R, G, B) = fr.get_params(linear = True)
             X = fr.M[0][0] * R + fr.M[0][1] * G + fr.M[0][2] * B
             Y = fr.M[1][0] * R + fr.M[1][1] * G + fr.M[1][2] * B
             Z = fr.M[2][0] * R + fr.M[2][1] * G + fr.M[2][2] * B
@@ -220,7 +273,7 @@ class Colour(object):
                     return (X, Y, Z)
                 else:
                     fr = sRGB(fr, with_transfer = False)
-            ret = Colour.__matrix_convert(fr.name, to.name, *(fr.get_params()))
+            ret = Colour.__matrix_convert(fr, to, *(fr.get_params()))
             if isinstance(to, sRGB) and to.with_transfer:
                 ret = (sRGB.encode_transfer(ret[0]), sRGB.encode_transfer(ret[1]), sRGB.encode_transfer(ret[2]))
             return ret
@@ -350,10 +403,22 @@ class RGB(Colour):
         self.M, self.Minv = M, Minv
         self.colour_space = colour_space
         (self.R, self.G, self.B) = self.__init(args, 'RGB', True)
-    def get_params(self):
-        return (self.R, self.G, self.B)
-    def set_params(self, R, G, B):
-        self.R, self.G, self.B = R, G, B
+    def matrix_id(self):
+        return list(list(r) for r in self.M)
+    def get_params(self, linear = None):
+        if linear is None or linear != self.with_transfer or self.transfer_function is None:
+            return (self.R, self.G, self.B)
+        elif linear:
+            return self.transfer_function.decode(self.R, self.G, self.B)
+        else:
+            return self.transfer_function.encode(self.R, self.G, self.B)
+    def set_params(self, R, G, B, linear = None):
+        if linear is None or linear != self.with_transfer or self.transfer_function is None:
+            self.R, self.G, self.B = R, G, B
+        elif linear:
+            self.R, self.G, self.B = return self.transfer_function.encode(R, G, B)
+        else:
+            self.R, self.G, self.B = return self.transfer_function.decode(R, G, B)
     def get_configuration(self):
         return {'with_transfer' : self.with_transfer,
                 'transfer_function': self.transfer_function,
@@ -372,10 +437,28 @@ class sRGB(Colour):
     def __init__(self, *args, with_transfer = True):
         self.with_transfer = with_transfer
         (self.R, self.G, self.B) = self.__init(args, 'sRGB', True)
-    def get_params(self):
-        return (self.R, self.G, self.B)
-    def set_params(self, R, G, B):
-        self.R, self.G, self.B = R, G, B
+    def get_params(self, linear = None):
+        if linear is None or linear != self.with_transfer:
+            return (self.R, self.G, self.B)
+        elif linear:
+            return (sRGB.decode_transfer(self.R),
+                    sRGB.decode_transfer(self.G),
+                    sRGB.decode_transfer(self.B))
+        else:
+            return (sRGB.encode_transfer(self.R),
+                    sRGB.encode_transfer(self.G),
+                    sRGB.encode_transfer(self.B))
+    def set_params(self, R, G, B, linear = None):
+        if linear is None or linear != self.with_transfer:
+            self.R, self.G, self.B = R, G, B
+        elif linear:
+            self.R = sRGB.encode_transfer(self.R)
+            self.G = sRGB.encode_transfer(self.G)
+            self.B = sRGB.encode_transfer(self.B)
+        else:
+            self.R = sRGB.decode_transfer(self.R)
+            self.G = sRGB.decode_transfer(self.G)
+            self.B = sRGB.decode_transfer(self.B)
     @staticmethod
     def encode_transfer(t):
 	sign = 1
@@ -406,9 +489,9 @@ class CIExyY(Colour):
 class CIEXYZ(Colour):
     def __init__(self, *args):
         (self.X, self.Y, self.Z) = self.__init(args, 'CIEXYZ', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.X, self.Y, self.Z)
-    def set_params(self, X, Y, Z):
+    def set_linear_params(self, X, Y, Z):
         self.X, self.Y, self.Z = X, Y, Z
 
 class CIELAB(Colour):
@@ -428,41 +511,41 @@ class CIELAB(Colour):
 class YIQ(Colour):
     def __init__(self, *args):
         (self.Y, self.I, self.Q) = self.__init(args, 'YIQ', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.Y, self.I, self.Q)
-    def set_params(self, Y, I, Q):
+    def set_linear_params(self, Y, I, Q):
         self.Y, self.I, self.Q = Y, I, Q
 
 class YDbDr(Colour):
     def __init__(self, *args):
         (self.Y, self.Db, self.Dr) = self.__init(args, 'YDbDr', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.Y, self.Db, self.Dr)
-    def set_params(self, Y, Db, Dr):
+    def set_linear_params(self, Y, Db, Dr):
         self.Y, self.Db, self.Dr = Y, Db, Dr
 
 class YUV(Colour):
     def __init__(self, *args):
         (self.Y, self.U, self.V) = self.__init(args, 'YUV', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.Y, self.U, self.V)
-    def set_params(self, Y, U, V):
+    def set_linear_params(self, Y, U, V):
         self.Y, self.U, self.V = Y, U, V
 
 class YPbPr(Colour):
     def __init__(self, *args):
         (self.Y, self.Pb, self.Pr) = self.__init(args, 'YPbPr', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.Y, self.Pb, self.Pr)
-    def set_params(self, Y, Pb, Pr):
+    def set_linear_params(self, Y, Pb, Pr):
         self.Y, self.Pb, self.Pr = Y, Pb, Pr
 
 class YCgCo(Colour):
     def __init__(self, *args):
         (self.Y, self.Cg, self.Co) = self.__init(args, 'YCgCo', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.Y, self.Cg, self.Co)
-    def set_params(self, Y, Cg, Co):
+    def set_linear_params(self, Y, Cg, Co):
         self.Y, self.Cg, self.Co = Y, Cg, Co
 
 class CIE1960UCS(Colour):
@@ -513,9 +596,9 @@ class CIELChuv(Colour):
 class YES(Colour):
     def __init__(self, *args):
         (self.Y, self.E, self.S) = self.__init(args, 'YES', True)
-    def get_params(self):
+    def get_linear_params(self):
         return (self.Y, self.E, self.S)
-    def set_params(self, Y, E, S):
+    def set_linear_params(self, Y, E, S):
         self.Y, self.E, self.S = Y, E, S
 
 Illuminants = {
