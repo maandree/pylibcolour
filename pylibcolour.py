@@ -382,15 +382,17 @@ class RGB(Colour):
             self.transitioninv = transition * slope
         def encode(self, *rgb):
             def f(t):
+                (t, sign) = (-t, -1) if t < 0 else (t, 1)
                 if t <= self.transition:
-                    return self.slope * t
-                return (1. + self.offset) * _pow(t, self.invgamma) - self.offset
+                    return (self.slope * t) * sign
+                return ((1. + self.offset) * (t ** self.invgamma) - self.offset) * sign
             return tuple(f(x) for x in rgb)
         def decode(self, *rgb):
             def f(t):
+                (t, sign) = (-t, -1) if t < 0 else (t, 1)
                 if t <= self.transitioninv:
-                    return t / self.slope
-                return _pow((t + self.offset) / (1. + self.offset), self.gamma)
+                    return (t / self.slope) * sign
+                return (((t + self.offset) / (1. + self.offset)) ** self.gamma) * sign
             return tuple(f(x) for x in rgb)
         def __repr__(self):
             p = (self.gamma.hex(), self.offset.hex(), self.slope.hex(), self.transition.hex())
@@ -413,8 +415,8 @@ class RGB(Colour):
     class CustomTransferFunction(object):
         def __init__(self, encoded_red, decoded_red, encoded_green = None,
                      decoded_green = None, encoded_blue = None, decoded_blue = None):
-            self.encoded_red   = encoded_red
-            self.decoded_red   = decoded_red
+            self.encoded_red   = encoded_red() if type(encoded_red) is type else encoded_red
+            self.decoded_red   = decoded_red() if type(decoded_red) is type else decoded_red
             self.encoded_green = encoded_green if encoded_green is not None else self.encoded_red
             self.decoded_green = decoded_green if decoded_green is not None else self.decoded_red
             self.encoded_blue  = encoded_blue  if encoded_blue  is not None else self.encoded_green
@@ -428,16 +430,328 @@ class RGB(Colour):
                  self.decoded_green, self.encoded_blue, self.decoded_blue)
             return 'RGB.CustomTransferFunction(%r, %r, %r, %r, %r, %r)' % p
 
+    class LStarTransferFunction(object):
+        def __init__(self):
+            pass
+        def __f(self, t):
+            (t, sign) = (-t, -1) if t < 0 else (t, 1)
+            t = 1.16 * _cbrt(t) - 0.16 if t > 216. / 24389. else t * 24389. / 2700.
+            return t * sign
+        def __finv(self, t):
+            (t, sign) = (-t, -1) if t < 0 else (t, 1)
+            t = (((1000000. * t + 480000.) * t + 76800.) * t + 4096.) / 1560896. if t > 0.08 else t * D(2700.) / 24389.
+            return t * sign
+        def encode(self, R, G, B):
+            return (self.__f(R), self.__f(G), self.__f(G))
+        def decode(self, R, G, B):
+            return (self.__finv(R), self.__finv(G), self.__finv(G))
+        def __repr__(self):
+            return 'RGB.LStarTransferFunction()'
+
+    class HLGOETFTransferFunction(object):
+        def __init__(self):
+            pass
+        def __f(self, t):
+            (t, sign) = (-t, -1) if t < 0 else (t, 1)
+            t = (3 * t) ** 0.5 if 12. * t <= 1. else 0.17883277 * _math.log(t - 0.02372241) + 1.004293468902569985701234145381
+            return t * sign
+        def __finv(self, t):
+            (t, sign) = (-t, -1) if t < 0 else (t, 1)
+            t = t * t / 3. if t <= 0.5 else _math.exp(t - 1.004293468902569985701234145381) / 0.17883277 + 0.02372241
+            return t * sign
+        def encode(self, R, G, B):
+            return (self.__f(R), self.__f(G), self.__f(G))
+        def decode(self, R, G, B):
+            return (self.__finv(R), self.__finv(G), self.__finv(G))
+        def __repr__(self):
+            return 'RGB.HLGOETFTransferFunction()'
+
+    sRGB = {'red'               : (0.6400, 0.3300, 1.),
+            'green'             : (0.3000, 0.6000, 1.),
+            'blue'              : (0.1500, 0.0600, 1.),
+            'white'             : (2, 'D65'),
+            'transfer_function' : (2.4, 0.055, 12.92, 0.0031306684425217108),
+            'colour_space'      : 'sRGB'}
+
+    Adobe_RGB = {'red'               : (0.6400, 0.3300, 1.),
+                 'green'             : (0.2100, 0.7100, 1.),
+                 'blue'              : (0.1500, 0.0600, 1.),
+                 'white'             : (2, 'D65'),
+                 'transfer_function' : (2.2,),
+                 'colour_space'      : 'Adobe RGB'}
+
+    Apple_RGB = {'red'               : (0.6250, 0.3400, 1.),
+                 'green'             : (0.2800, 0.5950, 1.),
+                 'blue'              : (0.1550, 0.0700, 1.),
+                 'white'             : (2, 'D65'),
+                 'transfer_function' : (1.8,),
+                 'colour_space'      : 'Apple RGB'}
+
+    Best_RGB = {'red'               : (0.7347, 0.2653, 1.),
+                'green'             : (0.2150, 0.7750, 1.),
+                'blue'              : (0.1300, 0.0350, 1.),
+                'white'             : (2, 'D50'),
+                'transfer_function' : (2.2,),
+                'colour_space'      : 'Best RGB'}
+
+    Beta_RGB = {'red'               : (0.6888, 0.3112, 1.),
+                'green'             : (0.1986, 0.7551, 1.),
+                'blue'              : (0.1265, 0.0352, 1.),
+                'white'             : (2, 'D50'),
+                'transfer_function' : (2.2,),
+                'colour_space'      : 'Beta RGB'}
+
+    Bruce_RGB = {'red'               : (0.6400, 0.3300, 1.),
+                 'green'             : (0.2800, 0.6500, 1.),
+                 'blue'              : (0.1500, 0.0600, 1.),
+                 'white'             : (2, 'D65'),
+                 'transfer_function' : (2.2,),
+                 'colour_space'      : 'Bruce RGB'}
+
+    CIE_RGB = {'red'               : (0.7450, 0.2650, 1.),
+               'green'             : (0.2740, 0.7170, 1.),
+               'blue'              : (0.1670, 0.0090, 1.),
+               'white'             : (2, 'E'),
+               'transfer_function' : (2.2,),
+               'colour_space'      : 'CIE RGB'}
+
+    ColorMatch_RGB = {'red'               : (0.6300, 0.3400, 1.),
+                      'green'             : (0.2950, 0.6050, 1.),
+                      'blue'              : (0.1500, 0.0750, 1.),
+                      'white'             : (2, 'D65'),
+                      'transfer_function' : (1.8,),
+                      'colour_space'      : 'ColorMatch RGB'}
+
+    DCI_P3_D65 = {'red'               : (0.6380, 0.3200, 1.),
+                  'green'             : (0.2650, 0.6900, 1.),
+                  'blue'              : (0.1500, 0.0600, 1.),
+                  'white'             : (2, 'D65'),
+                  'transfer_function' : (2.6,),
+                  'colour_space'      : 'DCI-P3, D65'}
+
+    DCI_P3_Theater = {'red'               : (0.6380, 0.3200, 1.),
+                      'green'             : (0.2650, 0.6900, 1.),
+                      'blue'              : (0.1500, 0.0600, 1.),
+                      'white'             : (0.314, 0.351, 1.),
+                      'transfer_function' : (2.6,),
+                      'colour_space'      : 'DCI-P3, Theater'}
+
+    Don_RGB_4 = {'red'               : (0.6960, 0.3000, 1.),
+                 'green'             : (0.2150, 0.7650, 1.),
+                 'blue'              : (0.1300, 0.0350, 1.),
+                 'white'             : (2, 'D50'),
+                 'transfer_function' : (2.2,),
+                 'colour_space'      : 'Don RGB 4'}
+
+    ECI_RGB = {'red'               : (0.6700, 0.3300, 1.),
+               'green'             : (0.2100, 0.7100, 1.),
+               'blue'              : (0.1400, 0.0800, 1.),
+               'white'             : (2, 'D50'),
+               'transfer_function' : (1.8,),
+               'colour_space'      : 'ECI RGB'}
+
+    ECI_RGB_V2 = {'red'               : (0.6700, 0.3300, 1.),
+                  'green'             : (0.2100, 0.7100, 1.),
+                  'blue'              : (0.1400, 0.0800, 1.),
+                  'white'             : (2, 'D50'),
+                  'transfer_function' : LStarTransferFunction,
+                  'colour_space'      : 'ECI RGB v2'}
+
+    Ekta_Space_PS5 = {'red'               : (0.6950, 0.3050, 1.),
+                      'green'             : (0.2600, 0.7000, 1.),
+                      'blue'              : (0.1100, 0.0050, 1.),
+                      'white'             : (2, 'D50'),
+                      'transfer_function' : (2.2,),
+                      'colour_space'      : 'Ekta Space PS5'}
+
+    ITU_R_BT_601_625_line = {'red'               : (0.6400, 0.3300, 1.),
+                             'green'             : (0.2900, 0.6000, 1.),
+                             'blue'              : (0.1500, 0.0060, 1.),
+                             'white'             : (2, 'D65'),
+                             'transfer_function' : (1. / 0.45, 0.09929682680944, 4.5, 0.018053968510807),
+                             'colour_space'      : 'ITU-R BT.601, 625 line'}
+
+    ITU_R_BT_601_525_line = {'red'               : (0.6300, 0.3400, 1.),
+                             'green'             : (0.3100, 0.5950, 1.),
+                             'blue'              : (0.1550, 0.0700, 1.),
+                             'white'             : (2, 'D65'),
+                             'transfer_function' : (1. / 0.45, 0.09929682680944, 4.5, 0.018053968510807),
+                             'colour_space'      : 'ITU-R BT.601, 525 line'}
+
+    ITU_R_BT_709 = {'red'               : (0.6300, 0.3300, 1.),
+                    'green'             : (0.3000, 0.6000, 1.),
+                    'blue'              : (0.1500, 0.0600, 1.),
+                    'white'             : (2, 'D65'),
+                    'transfer_function' : (1. / 0.45, 0.09929682680944, 4.5, 0.018053968510807),
+                    'colour_space'      : 'ITU-R BT.709'}
+
+    ITU_R_BT_2020 = {'red'               : (0.7080, 0.2920, 1.),
+                     'green'             : (0.1700, 0.7970, 1.),
+                     'blue'              : (0.1310, 0.0460, 1.),
+                     'white'             : (2, 'D65'),
+                     'transfer_function' : (1. / 0.45, 0.09929682680944, 4.5, 0.018053968510807),
+                     'colour_space'      : 'ITU-R BT.2020'}
+
+    ITU_R_BT_2100_EOTF_PQ = {'red'               : (0.7080, 0.2920, 1.),
+                             'green'             : (0.1700, 0.7970, 1.),
+                             'blue'              : (0.1310, 0.0460, 1.),
+                             'white'             : (2, 'D65'),
+                             'transfer_function' : None, # TODO
+                             'colour_space'      : 'ITU-R BT.2100, PQ EOTF'}
+
+    ITU_R_BT_2100_OOTF_PQ = {'red'               : (0.7080, 0.2920, 1.),
+                             'green'             : (0.1700, 0.7970, 1.),
+                             'blue'              : (0.1310, 0.0460, 1.),
+                             'white'             : (2, 'D65'),
+                             'transfer_function' : None, # TODO
+                             'colour_space'      : 'ITU-R BT.2100, PQ OOTF'}
+
+    ITU_R_BT_2100_OETF_PQ = {'red'               : (0.7080, 0.2920, 1.),
+                             'green'             : (0.1700, 0.7970, 1.),
+                             'blue'              : (0.1310, 0.0460, 1.),
+                             'white'             : (2, 'D65'),
+                             'transfer_function' : None, # TODO
+                             'colour_space'      : 'ITU-R BT.2100, PQ OETF'}
+
+    ITU_R_BT_2100_EOTF_HLG = {'red'               : (0.7080, 0.2920, 1.),
+                              'green'             : (0.1700, 0.7970, 1.),
+                              'blue'              : (0.1310, 0.0460, 1.),
+                              'white'             : (2, 'D65'),
+                              'transfer_function' : None, # TODO
+                              'colour_space'      : 'ITU-R BT.2100, HLG EOTF'}
+
+    ITU_R_BT_2100_OOTF_HLG = {'red'               : (0.7080, 0.2920, 1.),
+                              'green'             : (0.1700, 0.7970, 1.),
+                              'blue'              : (0.1310, 0.0460, 1.),
+                              'white'             : (2, 'D65'),
+                              'transfer_function' : None, # TODO
+                              'colour_space'      : 'ITU-R BT.2100, HLG OOTF'}
+
+    ITU_R_BT_2100_OETF_HLG = {'red'               : (0.7080, 0.2920, 1.),
+                              'green'             : (0.1700, 0.7970, 1.),
+                              'blue'              : (0.1310, 0.0460, 1.),
+                              'white'             : (2, 'D65'),
+                              'transfer_function' : HLGOETFTransferFunction,
+                              'colour_space'      : 'ITU-R BT.2100, HLG OETF'}
+
+    Lightroom_RGB = {'red'               : (0.7347, 0.2653, 1.),
+                     'green'             : (0.1596, 0.8404, 1.),
+                     'blue'              : (0.0366, 0.0001, 1.),
+                     'white'             : (2, 'D50'),
+                     'transfer_function' : None,
+                     'colour_space'      : 'Lightroom RGB'}
+
+    NTSC_RGB = {'red'               : (0.6700, 0.3300, 1.),
+                'green'             : (0.2100, 0.7100, 1.),
+                'blue'              : (0.1400, 0.0800, 1.),
+                'white'             : (2, 'C'),
+                'transfer_function' : (1. / 0.45, 0.09929682680944, 4.5, 0.018053968510807),
+                'colour_space'      : 'NTSC RGB'}
+
+    PAL_SECAM_RGB = {'red'               : (0.6400, 0.3300, 1.),
+                     'green'             : (0.2900, 0.6000, 1.),
+                     'blue'              : (0.1500, 0.0600, 1.),
+                     'white'             : (2, 'D65'),
+                     'transfer_function' : (1. / 0.45, 0.09929682680944, 4.5, 0.018053968510807),
+                     'colour_space'      : 'PAL/SECAM RGB'}
+
+    Prophoto_RGB = {'red'               : (0.7347, 0.3400, 1.),
+                    'green'             : (0.2800, 0.5950, 1.),
+                    'blue'              : (0.1550, 0.0700, 1.),
+                    'white'             : (2, 'D50'),
+                    'transfer_function' : (1.8,),
+                    'colour_space'      : 'Prophoto RGB'}
+
+    SGI_RGB = {'red'               : (0.6250, 0.3400, 1.),
+               'green'             : (0.2800, 0.5950, 1.),
+               'blue'              : (0.1550, 0.0700, 1.),
+               'white'             : (2, 'D50'),
+               'transfer_function' : (1.47,),
+               'colour_space'      : 'SGI RGB'}
+
+    SMPTE_240M_RGB = {'red'               : (0.6300, 0.3400, 1.),
+                      'green'             : (0.3100, 0.5950, 1.),
+                      'blue'              : (0.1550, 0.0700, 1.),
+                      'white'             : (2, 'D65'),
+                      'transfer_function' : (1. / 0.45, 0.1115721957735072, 4.0, 0.022821585552393633),
+                      'colour_space'      : 'SMPTE-240M RGB'}
+
+    SMPTE_C_RGB = {'red'               : (0.6300, 0.3400, 1.),
+                   'green'             : (0.3100, 0.5950, 1.),
+                   'blue'              : (0.1550, 0.0700, 1.),
+                   'white'             : (2, 'D65'),
+                   'transfer_function' : (1. / 0.45, 0.09929682680944, 4.0, 0.018053968510807),
+                   'colour_space'      : 'SMPTE-C RGB'}
+
+    WIDE_GAMUT_RGB = {'red'               : (0.7350, 0.2650, 1.),
+                      'green'             : (0.1150, 0.8260, 1.),
+                      'blue'              : (0.1570, 0.0180, 1.),
+                      'white'             : (2, 'D65'),
+                      'transfer_function' : (2.19921875),
+                      'colour_space'      : 'Wide-gamut RGB'}
+
+    COLOUR_SPACES = [sRGB,
+                     Adobe_RGB,
+                     Apple_RGB,
+                     Best_RGB,
+                     Beta_RGB,
+                     Bruce_RGB,
+                     CIE_RGB,
+                     ColorMatch_RGB,
+                     DCI_P3_D65,
+                     DCI_P3_Theater,
+                     Don_RGB_4,
+                     ECI_RGB,
+                     ECI_RGB_V2,
+                     Ekta_Space_PS5,
+                     ITU_R_BT_601_625_line,
+                     ITU_R_BT_601_525_line,
+                     ITU_R_BT_709,
+                     ITU_R_BT_2020,
+                     ITU_R_BT_2100_EOTF_PQ,
+                     ITU_R_BT_2100_OOTF_PQ,
+                     ITU_R_BT_2100_OETF_PQ,
+                     ITU_R_BT_2100_EOTF_HLG,
+                     ITU_R_BT_2100_OOTF_HLG,
+                     ITU_R_BT_2100_OETF_HLG,
+                     Lightroom_RGB,
+                     NTSC_RGB,
+                     PAL_SECAM_RGB,
+                     Prophoto_RGB,
+                     SGI_RGB,
+                     SMPTE_240M_RGB,
+                     SMPTE_C_RGB,
+                     WIDE_GAMUT_RGB]
+
     def __init__(self, *args, with_transfer = True, transfer_function = None,
                  red = None, green = None, blue = None, white = None,
                  white_r = 1, white_g = 1, white_b = 1,
                  M = None, Minv = None, colour_space = None):
         self.with_transfer = with_transfer and transfer_function is not None
-        self.transfer_function = transfer_function
-        self.red   = CIExyY(red)   if red   is not None else None
-        self.green = CIExyY(green) if green is not None else None
-        self.blue  = CIExyY(blue)  if blue  is not None else None
-        self.white = CIExyY(white) if white is not None else None
+        if transfer_function is None or not isinstance(transfer_function, tuple):
+            if type(transfer_function) is type:
+                self.transfer_function = transfer_function()
+            else:
+                self.transfer_function = transfer_function
+        if len(transfer_function) == 1:
+            self.transfer_function = RGB.SimpleTransferFunction(*transfer_function)
+        elif len(transfer_function) == 4:
+            self.transfer_function = RGB.RegularTransferFunction(*transfer_function)
+        elif len(transfer_function) in (2, 6):
+            self.transfer_function = RGB.CustomTransferFunction(*transfer_function)
+        else:
+            raise Exception('Invalid arguments')
+        self.red   = (CIExyY(*red)   if isinstance(red,   tuple) else CIExyY(red))   if red   is not None else None
+        self.green = (CIExyY(*green) if isinstance(green, tuple) else CIExyY(green)) if green is not None else None
+        self.blue  = (CIExyY(*blue)  if isinstance(blue,  tuple) else CIExyY(blue))  if blue  is not None else None
+        if white is None:
+            self.white = None
+        elif not isinstance(white, tuple):
+            self.white = CIExyY(white)
+        elif len(white) == 2:
+            self.white = CIExyY(ILLUMINANTS[white[0], white[1]])
+        else:
+            self.white = CIExyY(*white)
         self.white_r = white_r
         self.white_g = white_g
         self.white_b = white_b
@@ -547,18 +861,12 @@ class sRGB(Colour):
             self.B = sRGB.decode_transfer(self.B)
     @staticmethod
     def encode_transfer(t):
-        sign = 1
-        if t < 0:
-            t = -t
-            sign = -1
+        (t, sign) = (-t, -1) if t < 0 else (t, 1)
         t = 12.92 * t if t <= 0.0031306684425217108 else.055 * t ** (1 / 2.4) - 0.055
         return t * sign
     @staticmethod
     def decode_transfer(t):
-        sign = 1
-        if t < 0:
-            t = -t
-            sign = -1
+        (t, sign) = (-t, -1) if t < 0 else (t, 1)
         t = t / 12.92 if t <= 0.0031306684425217108 * 12.92 else ((t + 0.055) / 1.055) ** 2.4
         return t * sign
     def get_configuration(self):
@@ -656,7 +964,7 @@ class CIEUVW(Colour):
 
 class CIELUV(Colour):
     def __init__(self, *args, white = None):
-        self.white = CIEXYZ(white if white is not None else Illuminants[2]['D65'])
+        self.white = CIEXYZ(white if white is not None else ILLUMINANTS[2]['D65'])
         Colour.__init__(self, args, 'CIELUV', False)
     def get_params(self):
         return (self.L, self.u, self.v)
@@ -667,7 +975,7 @@ class CIELUV(Colour):
 
 class CIELChuv(Colour):
     def __init__(self, *args, white = None, one_revolution = 360.):
-        self.white = CIEXYZ(white if white is not None else Illuminants[2]['D65'])
+        self.white = CIEXYZ(white if white is not None else ILLUMINANTS[2]['D65'])
         try:
             self.one_revolution = float(one_revolution)
         except ValueError:
@@ -688,7 +996,7 @@ class YES(Colour):
     def set_linear_params(self, Y, E, S):
         self.Y, self.E, self.S = Y, E, S
 
-Illuminants = {
+ILLUMINANTS = {
     2 : {
         'A'   : CIExyY(0.447573514098910552050369915378, 0.407439444306660847328060981454, 1.),
         'B'   : CIExyY(0.348407693041403399014654951316, 0.351617234807268863594487129376, 1.),
