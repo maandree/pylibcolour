@@ -757,7 +757,7 @@ class RGB(Colour):
         self.white_b = white_b
         self.M, self.Minv = M, Minv
         self.colour_space = colour_space
-        self.red.Y, self.green.Y, self.blue.Z = 1, 1, 1
+        self.red.Y, self.green.Y, self.blue.Y = 1, 1, 1
 
         if self.M is not None:
             self.Minv = _invert(M)
