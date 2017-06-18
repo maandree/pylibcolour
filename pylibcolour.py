@@ -2,8 +2,91 @@
 
 import math as _math
 
-def _pow(x, p):
-    return -((-x) ** p) if x < 0 else x ** p
+def _ev(f, *p):
+    if len(p) == 0:
+        raise Exception('Too few arguments')
+    if len(p) == 1:
+        p = p[0]
+        if isinstance(p, list):
+            return [_ev(f, x) for x in p]
+        if isinstance(p, tuple):
+            return tuple(_ev(f, x) for x in p)
+        return f(x)
+    n = None
+    t = None
+    for x in p:
+        if isinstance(x, list) or isinstance(x, tuple):
+            if n is None:
+                n = len(x)
+                t = type(x)
+            elif len(x) != n:
+                raise Exception('Dimension mismatch')
+    if n is None:
+        return f(*p)
+    ps = []
+    for x in p:
+        if isinstance(x, list) or isinstance(x, tuple):
+            ps.append(x)
+        else:
+            ps.append([x] * n)
+    return t(_ev(f, *xs) for xs in zip(*ps))
+
+def _add(*x):
+    return _ev(lambda *x : sum(x), *x)
+
+def _sub(*x):
+    return _ev(lambda *x : x[0] - sum(x[1:]) if len(x) > 1 else x[0], *x)
+
+def _mul(*x):
+    def f(*x):
+        r = 1
+        for a in x:
+            r *= a
+        return r
+    return _ev(f, *x)
+
+def _div(*x):
+    def f(*x):
+        r = x[0]
+        for a in x[1:]:
+            r /= a
+        return r
+    return _ev(f, *x)
+
+def _mod(*x):
+    def f(*x):
+        r = x[0]
+        for a in x[1:]:
+            r %= a
+        return r
+    return _ev(f, *x)
+
+def _sin(x):
+    return _ev(_math.sin, x)
+
+def _cos(x):
+    return _ev(_math.cos, x)
+
+def _atan2(y, x):
+    return _ev(_math.atan2, y, x)
+
+def _if(cond, true, false, *x, zip_it = False):
+    r = _ev(lambda *x : (true(*x) if cond(*x) else false(*x)), *x)
+    if zip_it:
+        t = [type(a) for a in x if isinstance(a, list) or isinstance(a, tuple)]
+        t = t[0] if len(t) else list
+        r = tuple(t(x) for x in zip(*r))
+    return r
+
+def _pow(*x):
+    def f(*x):
+        if len(x) == 1:
+            return x[0]
+        elif x[0] >= 0.:
+            return x[0] ** f(x[1:])
+        else:
+            return -((-x[0]) ** f(x[1:]))
+    return _ev(f, *x)
 
 def _cbrt(x):
     return _pow(x, 1. / 3.)
@@ -75,6 +158,8 @@ class Colour(object):
                     ps = Colour.__convert(args, self)
             if ps is None:
                 def conv(a):
+                    if isinstance(a, list) or isinstance(a, tuple):
+                        return type(a)(map(conv, a))
                     try:
                         return float(a)
                     except ValueError:
@@ -84,10 +169,13 @@ class Colour(object):
 
     def delta_e(self, other):
         x, y = CIELAB(self), CIELAB(other)
-        L = x.L - y.L
-        a = x.a - y.a
-        b = x.b - y.b
-        return (L * L + a * a + b * b) ** 0.5
+        L = _sub(x.L, y.L)
+        a = _sub(x.a, y.a)
+        b = _sub(x.b, y.b)
+        L = _mul(L, L)
+        a = _mul(a, a)
+        b = _mul(b, b)
+        return _pow(_add(L, a, b), 0.5)
 
     def cache(self, other):
         try:
@@ -161,9 +249,9 @@ class Colour(object):
     @staticmethod
     def __matrix_convert(fr, to, a, b, c):
         M = Colour.__get_matrix(fr, to)
-        return (M[1][1] * a + M[1][2] * b + M[1][3] * c,
-                M[2][1] * a + M[2][2] * b + M[2][3] * c,
-                M[3][1] * a + M[3][2] * b + M[3][3] * c)
+        return (_add(_mul(M[0][0], a), _mul(M[0][1], b), _mul(M[0][2], c)),
+                _add(_mul(M[1][0], a), _mul(M[1][1], b), _mul(M[1][2], c)),
+                _add(_mul(M[2][0], a), _mul(M[2][1], b), _mul(M[1][2], c)))
 
     @staticmethod
     def __convert(fr, to):
@@ -171,9 +259,9 @@ class Colour(object):
             M = Colour.__get_matrix(fr, to)
             if M is not None:
                 (a, b, c) = fr.get_params(linear = True)
-                (a, b, c) = (M[1][1] * a + M[1][2] * b + M[1][3] * c,
-                             M[2][1] * a + M[2][2] * b + M[2][3] * c,
-                             M[3][1] * a + M[3][2] * b + M[3][3] * c)
+                (a, b, c) = (_add(_mul(M[0][0], a), _mul(M[0][1], b), _mul(M[0][2], c)),
+                             _add(_mul(M[1][0], a), _mul(M[1][1], b), _mul(M[1][2], c)),
+                             _add(_mul(M[2][0], a), _mul(M[2][1], b), _mul(M[2][2], c)))
                 to = to.copy()
                 to.set_params(a, b, c, linear = True)
                 return to.get_params()
@@ -188,21 +276,21 @@ class Colour(object):
                     (R, G, B) = fr.get_params()
                     have_transfer = fr.with_transfer
                     if have_transfer and with_transfer and not to.transfer_function.same(fr.transfer_function):
-                        (R, G, B) = fr.transfer_function.decode(R, G, B)
+                        (R, G, B) = fr.decode_transfer(R, G, B)
                         have_transfer = False
                     break
                 if not isinstance(fr, CIEXYZ):
                     fr = CIEXYZ(fr)
-                R = to.Minv[0][0] * fr.X + to.Minv[0][1] * fr.Y + to.Minv[0][2] * fr.Z
-                G = to.Minv[1][0] * fr.X + to.Minv[1][1] * fr.Y + to.Minv[1][2] * fr.Z
-                B = to.Minv[2][0] * fr.X + to.Minv[2][1] * fr.Y + to.Minv[2][2] * fr.Z
+                R = _add(_mul(to.Minv[0][0], fr.X), _mul(to.Minv[0][1], fr.Y), _mul(to.Minv[0][2], fr.Z))
+                G = _add(_mul(to.Minv[1][0], fr.X), _mul(to.Minv[1][1], fr.Y), _mul(to.Minv[1][2], fr.Z))
+                B = _add(_mul(to.Minv[2][0], fr.X), _mul(to.Minv[2][1], fr.Y), _mul(to.Minv[2][2], fr.Z))
             if have_transfer != with_transfer:
                 if with_transfer:
                     if to.transfer_function is not None:
-                        (R, G, B) = to.transfer_function.encode(R, G, B)
+                        (R, G, B) = to.encode_transfer(R, G, B)
                 else:
                     if fr.transfer_function is not None:
-                        (R, G, B) = fr.transfer_function.decode(R, G, B)
+                        (R, G, B) = fr.decode_transfer(R, G, B)
             return (R, G, B)
 
         elif isinstance(to, sRGB) and isinstance(fr, sRGB):
@@ -213,23 +301,23 @@ class Colour(object):
 
         elif isinstance(to, CIEUVW):
             if isinstance(fr, CIEUVW):
-                w = fr.W * 13
-                return (fr.U + w * (fr.u0 - to.u0), fr.V + w * (fr.v0 - to.v0), fr.W)
+                w = _mul(fr.W, 13)
+                return (_add(fr.U, _mul(w, _sub(fr.u0, to.u0))), _add(fr.V, _mul(w, _sub(fr.v0, to.v0))), fr.W)
             else:
                 if not isinstance(fr, CIE1960UCS):
                     fr = CIE1960UCS(fr)
-                Y = 25. * _cbrt(fr.Y) - 17.
-                w = Y * 13.
-                return (w * (fr.u - to.u0), w * (fr.v - to.v0), fr.Y)
+                Y = _sub(_mul(25., _cbrt(fr.Y)), 17.)
+                w = _mul(Y, 13.)
+                return (_mul(w, _sub(fr.u, to.u0)), _mul(w, _sub(fr.v, to.v0)), fr.Y)
 
         elif isinstance(to, CIELUV):
             if isinstance(fr, CIELChuv):
-                pi2 = 2. * __math.pi
+                pi2 = 2. * _math.pi
                 if to.white.X != fr.white.X or to.white.Y != fr.white.Y or to.white.Z != fr.white.Z:
                     fr = CIELChuv(CIEXYZ(fr), one_revolution = pi2)
                 elif fr.one_revolution != pi2:
-                    fr = CIELChuv(fr.L, fr.C, fr.h * pi2 / fr.one_revolution, one_revolution = pi2)
-                return (fr.L, fr.C * __math.cos(fr.h), fr.C * __math.sin(fr.h))
+                    fr = CIELChuv(fr.L, fr.C, _mul(fr.h, pi2 / fr.one_revolution), one_revolution = pi2)
+                return (fr.L, _mul(fr.C, _cos(fr.h)), _mul(fr.C, _sin(fr.h)))
             else:
                 if isinstance(fr, CIELUV):
                     if fr.white.X == to.white.X and fr.white.Y == to.white.Y and fr.white.Z == to.white.Z:
@@ -237,37 +325,35 @@ class Colour(object):
                 if not isinstance(fr, CIEXYZ):
                     fr = CIEXYZ(fr)
                 wx, wy, x, y = to.white.X, to.white.Y, fr.X, fr.Y
-                wt = wx + 15. * wy + 3. * to.white.Z
-                t  =  x + 15. *  y + 3. * fr.Z
-                u = 4. * (x / t - wx / wt)
-                v = 9. * (y / t - wy / wt)
-                L = y / wy
-                L2 = L * 24389.
-                L = L2 / 27. if L2 <= 216. else _cbrt(L) * 116. - 16.
-                L2 = L * 13.
-                return (L, u * L2, v * L2)
+                wt = _add(wx, _mul(15., wy), _mul(3., to.white.Z))
+                t  = _add( x, _mul(15.,  y), _mul(3., fr.Z))
+                u = _mul(4., _sub(_div(x, t), _div(wx, wt)))
+                v = _mul(9., _sub(_div(y, t), _div(wy, wt)))
+                L = _div(y, wy)
+                L2 = _mul(L, 24389.)
+                _if(lambda l, l2 : l2 <= 216., lambda l, l2 : l2 / 27., lambda l, l2 : _cbrt(l) * 116. - 16., L, L2)
+                L2 = _mul(L, 13.)
+                return (L, _mul(u, L2), _mul(v, L2))
 
         elif isinstance(to, CIELChuv):
             if isinstance(fr, CIELChuv):
                 if to.white.X == fr.white.X and to.white.Y == fr.white.Y and to.white.Z == fr.white.Z:
                     if to.one_revolution != fr.one_revolution:
-                        h = fr.h * to.one_revolution / fr.one_revolution
+                        h = _mul(fr.h, to.one_revolution / fr.one_revolution)
                         fr = CIELChuv(fr.L, fr.C, h, white = fr.white, one_revolution = to.one_revolution)
                     return fr.get_params()
             if not isinstance(fr, CIELUV):
                 fr = CIELUV(fr, white = to.white)
             elif to.white.X != fr.white.X or to.white.Y != fr.white.Y or to.white.Z != fr.white.Z:
                 fr = CIELUV(fr, white = to.white)
-            h = __math.atan2(fr.v, fr.u) / (2. * __math.pi) * to.one_revolution
-            if h < 0:
-                h += to.one_revolution
-            return (fr.L, (fr.u * fr.u + fr.v * fr.v) ** 0.5, h)
+            h = _mul(_atan2(fr.v, fr.u), to.one_revolution / (2. * _math.pi))
+            return (fr.L, _pow(_add(_mul(fr.u, fr.u), _mul(fr.v, fr.v)), 0.5), _mod(h, to.one_revolution))
 
         elif isinstance(fr, RGB) and isinstance(to, CIEXYZ):
             (R, G, B) = fr.get_params(linear = True)
-            X = fr.M[0][0] * R + fr.M[0][1] * G + fr.M[0][2] * B
-            Y = fr.M[1][0] * R + fr.M[1][1] * G + fr.M[1][2] * B
-            Z = fr.M[2][0] * R + fr.M[2][1] * G + fr.M[2][2] * B
+            X = _add(_mul(fr.M[0][0], R), _mul(fr.M[0][1], G), _mul(fr.M[0][2], B))
+            Y = _add(_mul(fr.M[1][0], R), _mul(fr.M[1][1], G), _mul(fr.M[1][2], B))
+            Z = _add(_mul(fr.M[2][0], R), _mul(fr.M[2][1], G), _mul(fr.M[2][2], B))
             return (X, Y, Z)
 
         elif to.name == fr.name:
@@ -281,38 +367,35 @@ class Colour(object):
                 if not isinstance(to, CIEXYZ):
                     fr = CIEXYZ(fr)
                 elif isinstance(fr, CIExyY):
-                    if fr.y == 0:
-                        return (fr.Y, fr.Y, fr.Y)
-                    else:
-                        return (fr.x * fr.Y / fr.y, fr.Y, (1. - fr.x - fr.y) * fr.Y / fr.y)
+                    return _if(lambda x, y, Y : y == 0., lambda x, y, Y : (Y, Y, Y),
+                               lambda x, y, Y : (_div(_mul(x, Y), y), Y, _div(_mul(_sub(1., x, y), Y), y)),
+                               fr.x, fr.y, fr.Y, zip_it = True)
                 elif isinstance(fr, CIELAB):
-                    Y = CIELAB.decode_transfer((fr.L + 16.) / 116.)
-                    X = CIELAB.decode_transfer((Y + fr.a) / 500.) * 0.95047
-                    Z = CIELAB.decode_transfer((Y - fr.b) / 200.) * 1.08883
+                    Y = CIELAB.decode_transfer(_div(_add(fr.L, 16.), 116.))
+                    X = _mul(CIELAB.decode_transfer(_div(_add(Y, fr.a), 500.)), 0.95047)
+                    Z = _mul(CIELAB.decode_transfer(_div(_sub(Y, fr.b), 200.)), 1.08883)
                     return (X, Y, Z)
                 elif isinstance(fr, CIELChuv) or isinstance(fr, CIELUV):
                     if isinstance(fr, CIELChuv):
                         fr = CIELUV(fr, white = fr.white)
                     X = fr.white.X
                     Y = fr.white.Y
-                    L13 = fr.L * 13.
-                    t = X + 15. * Y + 3. * fr.white.Z
-                    u = fr.U / L13 + 4 * X / t
-                    v = fr.V / L13 + 9 * Y / t
-                    if fr.L <= 8.:
-                        Y *= fr.L * 27. / 24389.
-                    else:
-                        L = (fr.L + 16.) / 116.
-                        Y *= L * L * L
-                    X = 2.25 * Y * u / v
-                    Z = Y * (3. / v - 0.75 * u / v - 5.)
+                    L13 = _mul(fr.L, 13.)
+                    t = _add(X, _mul(15., Y), _mul(3., fr.white.Z))
+                    u = _div(fr.U, L13) + _div(_mul(4., X), t)
+                    v = _div(fr.V, L13) + _div(_mul(9., Y), t)
+                    L = _if(lambda l : l <= 8., lambda l : l, lambda l : _div(_add(l, 16.), 116.), fr.L)
+                    Y = _mul(Y, _if(lambda ll, l : ll <= 8., lambda ll, l : _div(_mul(l, 27.), 24389.),
+                                    lambda ll, l : _mul(l, l, l), fr.L, L))
+                    X = _div(_mul(2.25, Y, u), v)
+                    Z = _mul(Y, _sub(_div(3., v), _div(_mul(0.75, u), v), 5.))
                     return (X, Y, Z)
                 elif isinstance(fr, CIEUVW) or isinstance(fr, CIE1960UCS):
                     if isinstance(fr, CIEUVW):
                         fr = CIE1960UCS(fr)
                     Y = fr.Y
-                    X = 1.5 * Y * fr.u / fr.v
-                    Z = (4. * Y - Y / fr.u - 10. * Y * fr.v) / (2 * fr.v)
+                    X = _div(_mul(1.5, Y, fr.u), fr.v)
+                    Z = _sub(_mul(4., Y), _div(Y, fr.u), _mul(10., Y, fr.v)) / _mul(2., fr.v)
                     return (X, Y, Z)
                 else:
                     fr = sRGB(fr, with_transfer = False)
@@ -322,35 +405,37 @@ class Colour(object):
             return ret
 
         elif isinstance(to, CIExyY):
-            if isinstance(fr, sRGB) and fr.R == fr.G == fr.B == 0.:
-                return (0.31272660439158, 0.32902315240275, 0.)
-            else:
-                if not isinstance(fr, CIEXYZ):
-                    fr = CIEXYZ(fr)
-                s = fr.X + fr.Y + fr.Z
-                if s == 0.:
-                    return (0., 0., fr.Y)
-                else:
-                    return (fr.X / s, fr.Y / s, fr.Y)
+            orig_fr = fr
+            if not isinstance(fr, CIEXYZ):
+                fr = CIEXYZ(fr)
+            s = _add(fr.X, fr.Y, fr.Z)
+            r = _if(lambda s, X, Y : Y == 0., lambda s, X, Y : (_mul(0., Y), _mul(0., Y), Y),
+                    lambda s, X, Y : (_div(X, s), _div(Y, s), Y), s, fr.X, fr.Y, zip_it = True)
+            if isinstance(orig_fr, sRGB):
+                r = _if(lambda x, y, Y, R, G, B : R == G == B == 0.,
+                        lambda x, y, Y, R, G, B : (0.312726871026564878786047074755, 0.329023206641284038376227272238, 0.),
+                        lambda x, y, Y, R, G, B : (x, y, Y),
+                        r[0], r[1], r[2], orig_fr.R, orig_fr.G, orig_fr.B, zip_it = True)
+            return r
 
         elif isinstance(to, CIELAB):
             if not isinstance(fr, CIEXYZ):
                 fr = CIEXYZ(fr)
-            X = CIELAB.encode_transfer(fr.X / 0.95047)
+            X = CIELAB.encode_transfer(_div(fr.X, 0.95047))
             Y = CIELAB.encode_transfer(fr.Y)
-            Z = CIELAB.encode_transfer(fr.Z / 1.08883)
-            return (116. * Y - 16., 500. * (X - Y), 200. * (Y - Z))
+            Z = CIELAB.encode_transfer(_div(fr.Z, 1.08883))
+            return (_sub(_mul(116., Y), 16.), _mul(500., _sub(X, Y)), _mul(200., _sub(Y, Z)))
 
         elif isinstance(to, CIE1960UCS):
             if isinstance(fr, CIEUVW):
-                Y = (fr.W + 17.) / 25.
-                Y *= Y * Y
-                W = fr.W * 13.;
-                return (fr.U / W + fr.u0, fr.V / W + fr.v0, fr.Y)
+                Y = _div(_add(fr.W, 17.), 25.)
+                Y = _mul(Y, Y, Y)
+                W = _mul(fr.W, 13.)
+                return (_add(_div(fr.U, W), fr.u0), _add(_div(fr.V, W), fr.v0), fr.Y)
             if not isinstance(fr, CIEXYZ):
                 fr = CIEXYZ(fr)
-            w = fr.X + 15. * fr.Y + 3. * fr.Z
-            return (4. * fr.X / w, 6. * fr.Y / w, fr.Y)
+            w = _add(fr.X, _mul(15., fr.Y), _mul(3., fr.Z))
+            return (_div(_mul(4., fr.X), w), _div(_mul(6., fr.Y), w), fr.Y)
 
         raise Exception('Don\'t know how to convert from %s to %s' % (type(fr), type(to)))
 
@@ -422,9 +507,9 @@ class RGB(Colour):
             self.encoded_blue  = encoded_blue  if encoded_blue  is not None else self.encoded_green
             self.decoded_blue  = decoded_blue  if decoded_blue  is not None else self.decoded_green
         def encode(self, R, G, B):
-            return (self.encode_red(R), self.encode_green(G), self.encode_blue(G))
+            return (self.encode_red(R), self.encode_green(G), self.encode_blue(B))
         def decode(self, R, G, B):
-            return (self.decode_red(R), self.decode_green(G), self.decode_blue(G))
+            return (self.decode_red(R), self.decode_green(G), self.decode_blue(B))
         def __repr__(self):
             p = (self.encoded_red, self.decoded_red, self.encoded_green,
                  self.decoded_green, self.encoded_blue, self.decoded_blue)
@@ -809,16 +894,30 @@ class RGB(Colour):
         if linear is None or linear != self.with_transfer or self.transfer_function is None:
             return (self.R, self.G, self.B)
         elif linear:
-            return self.transfer_function.decode(self.R, self.G, self.B)
+            return self.decode_transfer(self.R, self.G, self.B)
         else:
-            return self.transfer_function.encode(self.R, self.G, self.B)
+            return self.encode_transfer(self.R, self.G, self.B)
     def set_params(self, R, G, B, linear = None):
         if linear is None or linear != self.with_transfer or self.transfer_function is None:
             self.R, self.G, self.B = R, G, B
         elif linear:
-            self.R, self.G, self.B = self.transfer_function.encode(R, G, B)
+            self.R, self.G, self.B = self.encode_transfer(R, G, B)
         else:
-            self.R, self.G, self.B = self.transfer_function.decode(R, G, B)
+            self.R, self.G, self.B = self.decode_transfer(R, G, B)
+    def encode_transfer(self, R, G, B):
+        if isinstance(R, list):
+            return [self.transfer_function.encode(r, g, b) for r, g, b in zip(R, G, B)]
+        elif isinstance(R, tuple):
+            return tuple(self.transfer_function.encode(r, g, b) for r, g, b in zip(R, G, B))
+        else:
+            return self.transfer_function.encode(R, G, B)
+    def decode_transfer(self, R, G, B):
+        if isinstance(R, list):
+            return [self.transfer_function.decode(r, g, b) for r, g, b in zip(R, G, B)]
+        elif isinstance(R, tuple):
+            return tuple(self.transfer_function.decode(r, g, b) for r, g, b in zip(R, G, B))
+        else:
+            return self.transfer_function.decode(R, G, B)
     def get_configuration(self):
         return {'with_transfer' : self.with_transfer,
                 'transfer_function': self.transfer_function,
@@ -861,11 +960,19 @@ class sRGB(Colour):
             self.B = sRGB.decode_transfer(self.B)
     @staticmethod
     def encode_transfer(t):
+        if isinstance(t, list):
+            return [sRGB.encode_transfer(x) for x in t]
+        elif isinstance(t, tuple):
+            return tuple(sRGB.encode_transfer(x) for x in t)
         (t, sign) = (-t, -1) if t < 0 else (t, 1)
         t = 12.92 * t if t <= 0.0031306684425217108 else.055 * t ** (1 / 2.4) - 0.055
         return t * sign
     @staticmethod
     def decode_transfer(t):
+        if isinstance(t, list):
+            return [sRGB.decode_transfer(x) for x in t]
+        elif isinstance(t, tuple):
+            return tuple(sRGB.decode_transfer(x) for x in t)
         (t, sign) = (-t, -1) if t < 0 else (t, 1)
         t = t / 12.92 if t <= 0.0031306684425217108 * 12.92 else ((t + 0.055) / 1.055) ** 2.4
         return t * sign
@@ -897,9 +1004,17 @@ class CIELAB(Colour):
         self.L, self.a, self.b = L, a, b
     @staticmethod
     def encode_transfer(t):
+        if isinstance(t, list):
+            return [CIELAB.encode_transfer(x) for x in t]
+        elif isinstance(t, tuple):
+            return tuple(CIELAB.encode_transfer(x) for x in t)
         return t * t * t if t > 6. / 29. else (t - 4. / 29.) * 108. / 841.
     @staticmethod
     def decode_transfer(t):
+        if isinstance(t, list):
+            return [CIELAB.decode_transfer(x) for x in t]
+        elif isinstance(t, tuple):
+            return tuple(CIELAB.decode_transfer(x) for x in t)
         return _cbrt(t) if t > 216. / 24389. else t * 841. / 108. + 4. / 29.
 
 class YIQ(Colour):
