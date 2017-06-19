@@ -74,8 +74,9 @@ def _if(cond, true, false, *x, zip_it = False):
     r = _ev(lambda *x : (true(*x) if cond(*x) else false(*x)), *x)
     if zip_it:
         t = [type(a) for a in x if isinstance(a, list) or isinstance(a, tuple)]
-        t = t[0] if len(t) else list
-        r = tuple(t(x) for x in zip(*r))
+        if len(t):
+            t = t[0]
+            r = tuple(t(x) for x in zip(*r))
     return r
 
 def _pow(*x):
@@ -293,6 +294,15 @@ class Colour(object):
                         (R, G, B) = fr.decode_transfer(R, G, B)
             return (R, G, B)
 
+        elif isinstance(fr, RGB):
+            (R, G, B) = fr.get_params(linear = True)
+            X = _add(_mul(fr.M[0][0], R), _mul(fr.M[0][1], G), _mul(fr.M[0][2], B))
+            Y = _add(_mul(fr.M[1][0], R), _mul(fr.M[1][1], G), _mul(fr.M[1][2], B))
+            Z = _add(_mul(fr.M[2][0], R), _mul(fr.M[2][1], G), _mul(fr.M[2][2], B))
+            if isinstance(to, CIEXYZ):
+                return (X, Y, Z)
+            return Colour.__convert(CIEXYZ(X, Y, Z), to)
+
         elif isinstance(to, sRGB) and isinstance(fr, sRGB):
             if to.with_transfer == fr.with_transfer:
                 return fr.get_params()
@@ -348,13 +358,6 @@ class Colour(object):
                 fr = CIELUV(fr, white = to.white)
             h = _mul(_atan2(fr.v, fr.u), to.one_revolution / (2. * _math.pi))
             return (fr.L, _pow(_add(_mul(fr.u, fr.u), _mul(fr.v, fr.v)), 0.5), _mod(h, to.one_revolution))
-
-        elif isinstance(fr, RGB) and isinstance(to, CIEXYZ):
-            (R, G, B) = fr.get_params(linear = True)
-            X = _add(_mul(fr.M[0][0], R), _mul(fr.M[0][1], G), _mul(fr.M[0][2], B))
-            Y = _add(_mul(fr.M[1][0], R), _mul(fr.M[1][1], G), _mul(fr.M[1][2], B))
-            Z = _add(_mul(fr.M[2][0], R), _mul(fr.M[2][1], G), _mul(fr.M[2][2], B))
-            return (X, Y, Z)
 
         elif to.name == fr.name:
             return fr.get_params()
@@ -889,7 +892,7 @@ class RGB(Colour):
         self.Minv = _invert(self.M)
 
     def matrix_id(self):
-        return list(list(r) for r in self.M)
+        return tuple(tuple(r) for r in self.M)
     def get_params(self, linear = None):
         if linear is None or linear != self.with_transfer or self.transfer_function is None:
             return (self.R, self.G, self.B)
