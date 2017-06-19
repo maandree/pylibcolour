@@ -834,7 +834,7 @@ class RGB(Colour):
         elif not isinstance(white, tuple):
             self.white = CIExyY(white)
         elif len(white) == 2:
-            self.white = CIExyY(ILLUMINANTS[white[0], white[1]])
+            self.white = CIExyY(ILLUMINANTS[white[0]][white[1]])
         else:
             self.white = CIExyY(*white)
         self.white_r = white_r
@@ -873,7 +873,7 @@ class RGB(Colour):
         self.white = CIExyY(w)
 
     def __set_matrices(self):
-        r, g, b = CIEXYY(self.red),    CIEXYY(self.green),  CIEXYY(self.blue)
+        r, g, b = CIExyY(self.red),    CIExyY(self.green),  CIExyY(self.blue)
         r, g, b = CIEXYZ(r.x, r.y, 1), CIEXYZ(g.x, g.y, 1), CIEXYZ(b.x, b.y, 1)
         w = CIEXYZ(self.white)
         M = [[r.X, g.X, b.X],
