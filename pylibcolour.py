@@ -252,7 +252,7 @@ class Colour(object):
         M = Colour.__get_matrix(fr, to)
         return (_add(_mul(M[0][0], a), _mul(M[0][1], b), _mul(M[0][2], c)),
                 _add(_mul(M[1][0], a), _mul(M[1][1], b), _mul(M[1][2], c)),
-                _add(_mul(M[2][0], a), _mul(M[2][1], b), _mul(M[1][2], c)))
+                _add(_mul(M[2][0], a), _mul(M[2][1], b), _mul(M[2][2], c)))
 
     @staticmethod
     def __convert(fr, to):
@@ -865,10 +865,6 @@ class RGB(Colour):
         r = CIEXYZ(self.M[0][0] / Sr, 1, self.M[1][0] / Sr)
         g = CIEXYZ(self.M[0][1] / Sg, 1, self.M[1][1] / Sg)
         b = CIEXYZ(self.M[0][2] / Sb, 1, self.M[1][2] / Sb)
-        M = [[r.X, g.X, b.X],
-             [r.Y, g.Y, b.Y],
-             [r.Z, g.Z, b.Z]]
-        self.M = _invert(M)
         w = CIEXYZ(Sr, Sg, Sb)
         self.red   = CIExyY(r)
         self.green = CIExyY(g)
@@ -876,8 +872,9 @@ class RGB(Colour):
         self.white = CIExyY(w)
 
     def __set_matrices(self):
-        r, g, b = CIExyY(self.red),    CIExyY(self.green),  CIExyY(self.blue)
-        r, g, b = CIEXYZ(r.x, r.y, 1), CIEXYZ(g.x, g.y, 1), CIEXYZ(b.x, b.y, 1)
+        r, g, b = CIExyY(self.red), CIExyY(self.green), CIExyY(self.blue)
+        r.Y, g.Y, b.Y = 1., 1., 1.
+        r, g, b = CIEXYZ(r), CIEXYZ(g), CIEXYZ(b)
         w = CIEXYZ(self.white)
         M = [[r.X, g.X, b.X],
              [r.Y, g.Y, b.Y],
