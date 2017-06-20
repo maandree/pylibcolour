@@ -919,18 +919,18 @@ class RGB(Colour):
         else:
             return self.transfer_function.decode(R, G, B)
     def get_configuration(self):
-        return {'with_transfer' : self.with_transfer,
-                'transfer_function': self.transfer_function,
-                'red': self.red,
-                'green': self.green,
-                'blue': self.blue,
-                'white': self.white,
-                'white_r': self.white_r,
-                'white_g': self.white_g,
-                'white_b': self.white_b,
-                'M': self.M,
-                'M': self.Minv,
-                'colour_space': self.colour_space}
+        return {'with_transfer'     : self.with_transfer,
+                'transfer_function' : self.transfer_function,
+                'red'               : self.red,
+                'green'             : self.green,
+                'blue'              : self.blue,
+                'white'             : self.white,
+                'white_r'           : self.white_r,
+                'white_g'           : self.white_g,
+                'white_b'           : self.white_b,
+                'M'                 : self.M,
+                'Minv'              : self.Minv,
+                'colour_space'      : self.colour_space}
 
 class sRGB(Colour):
     def __init__(self, *args, with_transfer = True):
@@ -964,8 +964,8 @@ class sRGB(Colour):
             return [sRGB.encode_transfer(x) for x in t]
         elif isinstance(t, tuple):
             return tuple(sRGB.encode_transfer(x) for x in t)
-        (t, sign) = (-t, -1) if t < 0 else (t, 1)
-        t = 12.92 * t if t <= 0.0031306684425217108 else.055 * t ** (1 / 2.4) - 0.055
+        (t, sign) = (-t, -1.) if t < 0. else (t, 1.)
+        t = 12.92 * t if t <= 0.0031306684425217108 else 1.055 * t ** (1. / 2.4) - 0.055
         return t * sign
     @staticmethod
     def decode_transfer(t):
@@ -973,7 +973,7 @@ class sRGB(Colour):
             return [sRGB.decode_transfer(x) for x in t]
         elif isinstance(t, tuple):
             return tuple(sRGB.decode_transfer(x) for x in t)
-        (t, sign) = (-t, -1) if t < 0 else (t, 1)
+        (t, sign) = (-t, -1.) if t < 0. else (t, 1.)
         t = t / 12.92 if t <= 0.0031306684425217108 * 12.92 else ((t + 0.055) / 1.055) ** 2.4
         return t * sign
     def get_configuration(self):
