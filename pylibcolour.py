@@ -318,7 +318,7 @@ class Colour(object):
                     fr = CIE1960UCS(fr)
                 Y = _sub(_mul(25., _cbrt(fr.Y)), 17.)
                 w = _mul(Y, 13.)
-                return (_mul(w, _sub(fr.u, to.u0)), _mul(w, _sub(fr.v, to.v0)), fr.Y)
+                return (_mul(w, _sub(fr.u, to.u0)), _mul(w, _sub(fr.v, to.v0)), Y)
 
         elif isinstance(to, CIELUV):
             if isinstance(fr, CIELChuv):
@@ -341,7 +341,7 @@ class Colour(object):
                 v = _mul(9., _sub(_div(y, t), _div(wy, wt)))
                 L = _div(y, wy)
                 L2 = _mul(L, 24389.)
-                _if(lambda l, l2 : l2 <= 216., lambda l, l2 : l2 / 27., lambda l, l2 : _cbrt(l) * 116. - 16., L, L2)
+                L = _if(lambda l, l2 : l2 <= 216., lambda l, l2 : l2 / 27., lambda l, l2 : _cbrt(l) * 116. - 16., L, L2)
                 L2 = _mul(L, 13.)
                 return (L, _mul(u, L2), _mul(v, L2))
 
@@ -390,8 +390,9 @@ class Colour(object):
                     L = _if(lambda l : l <= 8., lambda l : l, lambda l : _div(_add(l, 16.), 116.), fr.L)
                     Y = _mul(Y, _if(lambda ll, l : ll <= 8., lambda ll, l : _div(_mul(l, 27.), 24389.),
                                     lambda ll, l : _mul(l, l, l), fr.L, L))
-                    X = _div(_mul(2.25, Y, u), v)
-                    Z = _mul(Y, _sub(_div(3., v), _div(_mul(0.75, u), v), 5.))
+                    u = _div(u, v)
+                    X = _mul(2.25, Y, u)
+                    Z = _mul(Y, _sub(_div(3., v), _mul(0.75, u), 5.))
                     return (X, Y, Z)
                 elif isinstance(fr, CIEUVW) or isinstance(fr, CIE1960UCS):
                     if isinstance(fr, CIEUVW):
