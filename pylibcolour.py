@@ -11,7 +11,7 @@ def _ev(f, *p):
             return [_ev(f, x) for x in p]
         if isinstance(p, tuple):
             return tuple(_ev(f, x) for x in p)
-        return f(x)
+        return f(p)
     n = None
     t = None
     for x in p:
@@ -84,9 +84,9 @@ def _pow(*x):
         if len(x) == 1:
             return x[0]
         elif x[0] >= 0.:
-            return x[0] ** f(x[1:])
+            return x[0] ** f(*x[1:])
         else:
-            return -((-x[0]) ** f(x[1:]))
+            return -((-x[0]) ** f(*x[1:]))
     return _ev(f, *x)
 
 def _cbrt(x):
@@ -385,8 +385,8 @@ class Colour(object):
                     Y = fr.white.Y
                     L13 = _mul(fr.L, 13.)
                     t = _add(X, _mul(15., Y), _mul(3., fr.white.Z))
-                    u = _div(fr.U, L13) + _div(_mul(4., X), t)
-                    v = _div(fr.V, L13) + _div(_mul(9., Y), t)
+                    u = _add(_div(fr.u, L13), _div(_mul(4., X), t))
+                    v = _add(_div(fr.v, L13), _div(_mul(9., Y), t))
                     L = _if(lambda l : l <= 8., lambda l : l, lambda l : _div(_add(l, 16.), 116.), fr.L)
                     Y = _mul(Y, _if(lambda ll, l : ll <= 8., lambda ll, l : _div(_mul(l, 27.), 24389.),
                                     lambda ll, l : _mul(l, l, l), fr.L, L))
@@ -1008,14 +1008,14 @@ class CIELAB(Colour):
             return [CIELAB.encode_transfer(x) for x in t]
         elif isinstance(t, tuple):
             return tuple(CIELAB.encode_transfer(x) for x in t)
-        return t * t * t if t > 6. / 29. else (t - 4. / 29.) * 108. / 841.
+        return _cbrt(t) if t > 216. / 24389. else t * 841. / 108. + 4. / 29.
     @staticmethod
     def decode_transfer(t):
         if isinstance(t, list):
             return [CIELAB.decode_transfer(x) for x in t]
         elif isinstance(t, tuple):
             return tuple(CIELAB.decode_transfer(x) for x in t)
-        return _cbrt(t) if t > 216. / 24389. else t * 841. / 108. + 4. / 29.
+        return t * t * t if t > 6. / 29. else (t - 4. / 29.) * 108. / 841.
 
 class YIQ(Colour):
     def __init__(self, *args):
