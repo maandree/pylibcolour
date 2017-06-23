@@ -337,8 +337,10 @@ class Colour(object):
                 wx, wy, x, y = to.white.X, to.white.Y, fr.X, fr.Y
                 wt = _add(wx, _mul(15., wy), _mul(3., to.white.Z))
                 t  = _add( x, _mul(15.,  y), _mul(3., fr.Z))
-                u = _mul(4., _sub(_div(x, t), _div(wx, wt)))
-                v = _mul(9., _sub(_div(y, t), _div(wy, wt)))
+                (u, v) = _if(lambda x, y, t : t == 0., lambda x, y, t : (0., 0.),
+                             lambda x, y, t : (x / t, y / t), x, y, t, zip_it = True)
+                u = _mul(4., _sub(u, wx / wt))
+                v = _mul(9., _sub(v, wy / wt))
                 L = _div(y, wy)
                 L2 = _mul(L, 24389.)
                 L = _if(lambda l, l2 : l2 <= 216., lambda l, l2 : l2 / 27., lambda l, l2 : _cbrt(l) * 116. - 16., L, L2)
@@ -371,7 +373,7 @@ class Colour(object):
                     fr = CIEXYZ(fr)
                 elif isinstance(fr, CIExyY):
                     return _if(lambda x, y, Y : y == 0., lambda x, y, Y : (Y, Y, Y),
-                               lambda x, y, Y : (_div(_mul(x, Y), y), Y, _div(_mul(_sub(1., x, y), Y), y)),
+                               lambda x, y, Y : (x * Y / y, Y, (1. - x - y) * Y / y),
                                fr.x, fr.y, fr.Y, zip_it = True)
                 elif isinstance(fr, CIELAB):
                     Y = CIELAB.decode_transfer(_div(_add(fr.L, 16.), 116.))
@@ -385,14 +387,18 @@ class Colour(object):
                     Y = fr.white.Y
                     L13 = _mul(fr.L, 13.)
                     t = _add(X, _mul(15., Y), _mul(3., fr.white.Z))
-                    u = _add(_div(fr.u, L13), _div(_mul(4., X), t))
-                    v = _add(_div(fr.v, L13), _div(_mul(9., Y), t))
-                    L = _if(lambda l : l <= 8., lambda l : l, lambda l : _div(_add(l, 16.), 116.), fr.L)
-                    Y = _mul(Y, _if(lambda ll, l : ll <= 8., lambda ll, l : _div(_mul(l, 27.), 24389.),
-                                    lambda ll, l : _mul(l, l, l), fr.L, L))
-                    u = _div(u, v)
-                    X = _mul(2.25, Y, u)
-                    Z = _mul(Y, _sub(_div(3., v), _mul(0.75, u), 5.))
+                    u = lambda u, l13, x, t: u / l13 + 4. * x / t
+                    v = lambda v, l13, y, t: v / l13 + 9. * y / t
+                    (u, v) = _if(lambda fr_u, fr_v, l13, x, y, t : (l13 == 0. or t == 0.),
+                                 lambda fr_u, fr_v, l13, x, y, t : (0., 0.),
+                                 lambda fr_u, fr_v, l13, x, y, t : (u(fr_u, l13, x, t), v(fr_v, l13, y, t)),
+                                 fr.u, fr.v, L13, X, Y, t, zip_it = True)
+                    L = _if(lambda l : l <= 8., lambda l : l, lambda l : (l + 16.) / 116., fr.L)
+                    Y = _mul(Y, _if(lambda ll, l : ll <= 8., lambda ll, l : l * 27. / 24389.,
+                                    lambda ll, l : l * l * l, fr.L, L))
+                    (X, Z) = _if(lambda y, u, v : v == 0., lambda y, u, v : (0., 0.),
+                                 lambda y, u, v : (2.25 * y * u / v, y * (3. / v - 0.75 * u / v - 5.)),
+                                 Y, u, v, zip_it = True)
                     return (X, Y, Z)
                 elif isinstance(fr, CIEUVW) or isinstance(fr, CIE1960UCS):
                     if isinstance(fr, CIEUVW):
@@ -413,8 +419,8 @@ class Colour(object):
             if not isinstance(fr, CIEXYZ):
                 fr = CIEXYZ(fr)
             s = _add(fr.X, fr.Y, fr.Z)
-            r = _if(lambda s, X, Y : Y == 0., lambda s, X, Y : (_mul(0., Y), _mul(0., Y), Y),
-                    lambda s, X, Y : (_div(X, s), _div(Y, s), Y), s, fr.X, fr.Y, zip_it = True)
+            r = _if(lambda s, X, Y : Y == 0., lambda s, X, Y : (0., 0., Y),
+                    lambda s, X, Y : (X / s, Y / s, Y), s, fr.X, fr.Y, zip_it = True)
             if isinstance(orig_fr, sRGB):
                 r = _if(lambda x, y, Y, R, G, B : R == G == B == 0.,
                         lambda x, y, Y, R, G, B : (0.312726871026564878786047074755, 0.329023206641284038376227272238, 0.),
@@ -438,8 +444,11 @@ class Colour(object):
                 return (_add(_div(fr.U, W), fr.u0), _add(_div(fr.V, W), fr.v0), fr.Y)
             if not isinstance(fr, CIEXYZ):
                 fr = CIEXYZ(fr)
-            w = _add(fr.X, _mul(15., fr.Y), _mul(3., fr.Z))
-            return (_div(_mul(4., fr.X), w), _div(_mul(6., fr.Y), w), fr.Y)
+            du = float.fromhex('0x1.952d1fde70582p-3')
+            dv = float.fromhex('0x1.3fb7b707d8df3p-2')
+            return _if(lambda x, y, w : w == 0., lambda x, y, w : (du, dv, y),
+                       lambda x, y, w : (4. * x / w, 6. * y / w, y),
+                       fr.X, fr.Y, _add(fr.X, _mul(15., fr.Y), _mul(3., fr.Z)), zip_it = True)
 
         raise Exception('Don\'t know how to convert from %s to %s' % (type(fr), type(to)))
 
@@ -528,7 +537,7 @@ class RGB(Colour):
             return t * sign
         def __finv(self, t):
             (t, sign) = (-t, -1) if t < 0 else (t, 1)
-            t = (((1000000. * t + 480000.) * t + 76800.) * t + 4096.) / 1560896. if t > 0.08 else t * D(2700.) / 24389.
+            t = (((1000000. * t + 480000.) * t + 76800.) * t + 4096.) / 1560896. if t > 0.08 else t * 2700. / 24389.
             return t * sign
         def encode(self, R, G, B):
             return (self.__f(R), self.__f(G), self.__f(G))

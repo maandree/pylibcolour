@@ -7,7 +7,10 @@ lib.py: pylibcolour.py matrices.py
 	./matrices.py >> lib.py
 	sed '1,/^### MATRICES %%%$$/d' < pylibcolour.py >> lib.py
 
+check: lib.py
+	./test.py
+
 clean:
 	-rm lib.py
 
-.PHONY: all clean
+.PHONY: all check clean
